@@ -1,8 +1,22 @@
 """Shared test fixtures and configuration for pytest."""
+
 import pytest
 from unittest.mock import Mock
-from databricks.sdk.service.catalog import CatalogInfo, SchemaInfo, TableInfo, ColumnInfo as CatalogColumnInfo, CatalogType, ColumnTypeName
-from databricks.sdk.service.sql import StatementResponse, StatementState, StatementStatus, ResultData, ResultManifest, ResultSchema, ColumnInfo
+from databricks.sdk.service.catalog import (
+    CatalogInfo,
+    SchemaInfo,
+    TableInfo,
+    ColumnInfo as CatalogColumnInfo,
+)
+from databricks.sdk.service.sql import (
+    StatementResponse,
+    StatementState,
+    StatementStatus,
+    ResultData,
+    ResultManifest,
+    ResultSchema,
+    ColumnInfo,
+)
 
 
 @pytest.fixture
@@ -59,13 +73,13 @@ def mock_statement_response():
     """Create a mock StatementResponse for successful SQL query."""
     # Mock the response structure
     response = Mock(spec=StatementResponse)
-    
+
     # Mock status
     status = Mock(spec=StatementStatus)
     status.state = StatementState.SUCCEEDED
     status.error = None
     response.status = status
-    
+
     # Mock result data
     result = Mock(spec=ResultData)
     result.data_array = [
@@ -73,22 +87,22 @@ def mock_statement_response():
         ["2", "Bob", "25"],
     ]
     response.result = result
-    
+
     # Mock manifest/schema
     manifest = Mock(spec=ResultManifest)
     schema = Mock(spec=ResultSchema)
-    
+
     col1 = Mock(spec=ColumnInfo)
     col1.name = "id"
     col2 = Mock(spec=ColumnInfo)
     col2.name = "name"
     col3 = Mock(spec=ColumnInfo)
     col3.name = "age"
-    
+
     schema.columns = [col1, col2, col3]
     manifest.schema = schema
     response.manifest = manifest
-    
+
     return response
 
 
@@ -101,7 +115,7 @@ def mock_sql_success_result():
         "data": [
             {"id": "1", "name": "Alice", "age": "30"},
             {"id": "2", "name": "Bob", "age": "25"},
-        ]
+        ],
     }
 
 
@@ -111,7 +125,7 @@ def mock_sql_error_result():
     return {
         "status": "error",
         "error": "Table not found",
-        "details": "The table 'invalid_table' does not exist"
+        "details": "The table 'invalid_table' does not exist",
     }
 
 
@@ -136,7 +150,7 @@ def mock_lineage_data():
                 "entity_id": "notebook789",
                 "entity_metadata": '{"notebook_id": "notebook789", "job_info": {"job_id": "job999"}}',
             },
-        ]
+        ],
     }
 
 
@@ -144,33 +158,33 @@ def mock_lineage_data():
 def mock_databricks_client():
     """Create a mock Databricks WorkspaceClient."""
     client = Mock()
-    
+
     # Mock catalogs API
     client.catalogs = Mock()
     client.catalogs.list = Mock()
-    
+
     # Mock schemas API
     client.schemas = Mock()
     client.schemas.list = Mock()
     client.schemas.get = Mock()
-    
+
     # Mock tables API
     client.tables = Mock()
     client.tables.list = Mock()
     client.tables.get = Mock()
-    
+
     # Mock statement execution API
     client.statement_execution = Mock()
     client.statement_execution.execute_statement = Mock()
-    
+
     # Mock jobs API
     client.jobs = Mock()
     client.jobs.get = Mock()
-    
+
     # Mock workspace API
     client.workspace = Mock()
     client.workspace.get_status = Mock()
-    
+
     return client
 
 
@@ -186,6 +200,7 @@ def setup_env_vars(monkeypatch):
 def reset_sdk_client():
     """Reset the global SDK client between tests."""
     from databricks_mcp import databricks_sdk_utils
+
     databricks_sdk_utils._sdk_client = None
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}
@@ -193,4 +208,3 @@ def reset_sdk_client():
     databricks_sdk_utils._sdk_client = None
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}
-

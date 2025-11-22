@@ -8,7 +8,6 @@ def format_query_results(result: Dict[str, Any]) -> str:
         return "No results or invalid result format."
 
     column_names: List[str] = []
-    rows: List[List[Any]] = []  # For new style, this will be list of dicts initially
     data_rows_formatted: List[str] = []
 
     # Try to parse as output from execute_databricks_sql (SDK based)

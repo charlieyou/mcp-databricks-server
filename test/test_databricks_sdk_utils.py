@@ -26,7 +26,9 @@ class TestGetSdkClient:
 
     def test_get_sdk_client_success(self, setup_env_vars, monkeypatch):
         """Test successful SDK client initialization."""
-        with patch("databricks_mcp.databricks_sdk_utils.WorkspaceClient") as mock_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.WorkspaceClient"
+        ) as mock_client:
             mock_instance = Mock()
             mock_client.return_value = mock_instance
 
@@ -36,7 +38,9 @@ class TestGetSdkClient:
 
     def test_get_sdk_client_caching(self, setup_env_vars, monkeypatch):
         """Test that SDK client is cached after first initialization."""
-        with patch("databricks_mcp.databricks_sdk_utils.WorkspaceClient") as mock_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.WorkspaceClient"
+        ) as mock_client:
             mock_instance = Mock()
             mock_client.return_value = mock_instance
 
@@ -73,7 +77,9 @@ class TestExecuteDatabricksSql:
 
     def test_execute_sql_success(self, setup_env_vars, mock_statement_response):
         """Test successful SQL execution."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.statement_execution.execute_statement.return_value = (
                 mock_statement_response
@@ -104,7 +110,9 @@ class TestExecuteDatabricksSql:
 
     def test_execute_sql_failed_state(self, setup_env_vars):
         """Test SQL execution with failed state."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
             mock_status = Mock()
@@ -125,7 +133,9 @@ class TestExecuteDatabricksSql:
 
     def test_execute_sql_no_data(self, setup_env_vars):
         """Test SQL execution that returns no data."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
             mock_status = Mock()
@@ -146,7 +156,9 @@ class TestExecuteDatabricksSql:
 
     def test_execute_sql_exception(self, setup_env_vars):
         """Test SQL execution with exception."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.statement_execution.execute_statement.side_effect = Exception(
                 "Connection error"
@@ -164,7 +176,9 @@ class TestGetUcAllCatalogsSummary:
 
     def test_list_catalogs_success(self, setup_env_vars, mock_catalog_info):
         """Test successful listing of catalogs."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.catalogs.list.return_value = [mock_catalog_info]
             mock_get_client.return_value = mock_client
@@ -177,7 +191,9 @@ class TestGetUcAllCatalogsSummary:
 
     def test_list_catalogs_empty(self, setup_env_vars):
         """Test listing catalogs when none exist."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.catalogs.list.return_value = []
             mock_get_client.return_value = mock_client
@@ -188,7 +204,9 @@ class TestGetUcAllCatalogsSummary:
 
     def test_list_catalogs_error(self, setup_env_vars):
         """Test listing catalogs with error."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.catalogs.list.side_effect = Exception("Permission denied")
             mock_get_client.return_value = mock_client
@@ -204,7 +222,9 @@ class TestGetUcCatalogDetails:
 
     def test_get_catalog_details_success(self, setup_env_vars, mock_schema_info):
         """Test successful retrieval of catalog details."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.schemas.list.return_value = [mock_schema_info]
             mock_get_client.return_value = mock_client
@@ -217,7 +237,9 @@ class TestGetUcCatalogDetails:
 
     def test_get_catalog_details_no_schemas(self, setup_env_vars):
         """Test getting catalog details with no schemas."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.schemas.list.return_value = []
             mock_get_client.return_value = mock_client
@@ -228,7 +250,9 @@ class TestGetUcCatalogDetails:
 
     def test_get_catalog_details_error(self, setup_env_vars):
         """Test getting catalog details with error."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.schemas.list.side_effect = Exception("Catalog not found")
             mock_get_client.return_value = mock_client
@@ -246,7 +270,9 @@ class TestGetUcSchemaDetails:
         self, setup_env_vars, mock_schema_info, mock_table_info
     ):
         """Test getting schema details without column information."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.schemas.get.return_value = mock_schema_info
             mock_client.tables.list.return_value = [mock_table_info]
@@ -264,7 +290,9 @@ class TestGetUcSchemaDetails:
         self, setup_env_vars, mock_schema_info, mock_table_info
     ):
         """Test getting schema details with column information."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.schemas.get.return_value = mock_schema_info
             mock_client.tables.list.return_value = [mock_table_info]
@@ -281,7 +309,9 @@ class TestGetUcSchemaDetails:
 
     def test_get_schema_details_no_tables(self, setup_env_vars, mock_schema_info):
         """Test getting schema details with no tables."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.schemas.get.return_value = mock_schema_info
             mock_client.tables.list.return_value = []
@@ -293,7 +323,9 @@ class TestGetUcSchemaDetails:
 
     def test_get_schema_details_error(self, setup_env_vars):
         """Test getting schema details with error."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.schemas.get.side_effect = Exception("Schema not found")
             mock_get_client.return_value = mock_client
@@ -309,7 +341,9 @@ class TestGetUcTableDetails:
 
     def test_get_table_details_without_lineage(self, setup_env_vars, mock_table_info):
         """Test getting table details without lineage."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.return_value = mock_table_info
             mock_get_client.return_value = mock_client
@@ -324,12 +358,16 @@ class TestGetUcTableDetails:
 
     def test_get_table_details_with_lineage(self, setup_env_vars, mock_table_info):
         """Test getting table details with lineage."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.return_value = mock_table_info
             mock_get_client.return_value = mock_client
 
-            with patch("databricks_mcp.databricks_sdk_utils._get_table_lineage") as mock_lineage:
+            with patch(
+                "databricks_mcp.databricks_sdk_utils._get_table_lineage"
+            ) as mock_lineage:
                 mock_lineage.return_value = {
                     "upstream_tables": ["catalog.schema.upstream"],
                     "downstream_tables": ["catalog.schema.downstream"],
@@ -348,7 +386,9 @@ class TestGetUcTableDetails:
 
     def test_get_table_details_error(self, setup_env_vars):
         """Test getting table details with error."""
-        with patch("databricks_mcp.databricks_sdk_utils.get_sdk_client") as mock_get_client:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.side_effect = Exception("Table not found")
             mock_get_client.return_value = mock_client
@@ -399,7 +439,9 @@ class TestProcessLineageResults:
 
     def test_process_lineage_success(self, mock_lineage_data):
         """Test processing lineage results successfully."""
-        with patch("databricks_mcp.databricks_sdk_utils._get_job_info_cached") as mock_job:
+        with patch(
+            "databricks_mcp.databricks_sdk_utils._get_job_info_cached"
+        ) as mock_job:
             mock_job.return_value = {"name": "Test Job", "tasks": []}
 
             result = _process_lineage_results(

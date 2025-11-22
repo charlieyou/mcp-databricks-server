@@ -23,4 +23,3 @@ __all__ = [
     "get_uc_schema_details",
     "get_uc_table_details",
 ]
-
