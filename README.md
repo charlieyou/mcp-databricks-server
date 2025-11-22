@@ -106,18 +106,31 @@ The server provides the following tools for navigating and understanding your Un
 -   Python 3.10+
 -   If you plan to install via `uv`, ensure it's [installed](https://docs.astral.sh/uv/getting-started/installation/#__tabbed_1_1)
 
-### Installation
+### Project Structure
 
-1.  Install the required dependencies:
-
-```bash
-pip install -r requirements.txt
+```
+mcp-databricks-server/
+├── src/databricks_mcp/      # Source code
+│   ├── main.py              # MCP server & tools
+│   ├── databricks_sdk_utils.py
+│   └── databricks_formatter.py
+├── test/                    # Test suite (62 tests, 91% coverage)
+├── docs/                    # Documentation
+│   ├── ARCHITECTURE.md      # System architecture
+│   └── TESTING.md           # Testing guide
+└── pyproject.toml           # Project configuration
 ```
 
-Or if using `uv`:
+### Installation
+
+1.  Install the package:
 
 ```bash
-uv pip install -r requirements.txt
+# Using pip
+pip install -e .
+
+# Or using uv (recommended)
+uv pip install -e .
 ```
 
 2.  Set up your environment variables:
@@ -168,7 +181,14 @@ For security best practices, consider regularly rotating your access tokens and 
 To run the server in standalone mode (e.g., for testing with Agent Composer):
 
 ```bash
-python main.py
+# Using the installed entry point
+databricks-mcp-server
+
+# Or via Python module
+python -m databricks_mcp.main
+
+# Or with uv
+uv run databricks-mcp-server
 ```
 
 This will start the MCP server using stdio transport, which can be used with Agent Composer or other MCP clients.
@@ -196,22 +216,24 @@ touch ~/.cursor/mcp.json
                 "--directory",
                 "/path/to/your/mcp-databricks-server",
                 "run",
-                "main.py"
+                "databricks-mcp-server"
             ]
         }
     }
 }
 ```
 
-Example using `python`:
+Example using `python` directly:
 ```json
 {
     "mcpServers": {
         "databricks": {
             "command": "python",
             "args": [
-                "/path/to/your/mcp-databricks-server/main.py"
-            ]
+                "-m",
+                "databricks_mcp.main"
+            ],
+            "cwd": "/path/to/your/mcp-databricks-server"
         }
     }
 }
@@ -289,15 +311,47 @@ For more details on using Terraform with Databricks Unity Catalog, refer to the 
 *   Databricks Provider: Catalog Resource ([https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/catalog](https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/catalog))
 *   Databricks Provider: Schemas Data Source ([https://registry.terraform.io/providers/databricks/databricks/latest/docs/data-sources/schemas](https://registry.terraform.io/providers/databricks/databricks/latest/docs/data-sources/schemas))
 
+## Testing
+
+This project includes a comprehensive test suite with 62 tests covering all MCP commands and utilities:
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage report
+uv run pytest --cov=databricks_mcp --cov-report=html
+
+# Run specific test file
+uv run pytest test/test_main.py -v
+```
+
+**Test Coverage**: 91% overall
+- All 5 MCP commands fully tested
+- Error handling and edge cases covered
+- Async operations verified
+
+For more details, see [docs/TESTING.md](docs/TESTING.md).
+
 ## Handling Long-Running Queries
 
 The `execute_sql_query` tool utilizes the Databricks SDK's `execute_statement` method. The `wait_timeout` parameter in the underlying `databricks_sdk_utils.execute_databricks_sql` function is set to '50s'. If a query runs longer than this, the SDK may return a statement ID for polling, but the current implementation of the tool effectively waits up to this duration for a synchronous-like response. For very long-running queries, this timeout might be reached.
 
+## Architecture
+
+For detailed information about the system architecture, design patterns, and extension points, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Dependencies
 
--   `databricks-sdk`: For interacting with the Databricks REST APIs and Unity Catalog.
--   `python-dotenv`: For loading environment variables from a `.env` file.
--   `mcp[cli]`: The Model Context Protocol library.
--   `asyncio`: For asynchronous operations within the MCP server.
--   `httpx` (typically a sub-dependency of `databricks-sdk` or `mcp`): For making HTTP requests.
+**Core:**
+-   `databricks-sdk==0.55.0`: For interacting with the Databricks REST APIs and Unity Catalog.
+-   `python-dotenv>=1.0.0`: For loading environment variables from a `.env` file.
+-   `mcp[cli]>=1.2.0`: The Model Context Protocol library.
+-   `httpx>=0.28.1`: For making HTTP requests.
+
+**Development:**
+-   `pytest>=8.0.0`: Test framework
+-   `pytest-asyncio>=0.23.0`: Async test support
+-   `pytest-cov>=4.1.0`: Coverage reporting
+-   `pytest-mock>=3.12.0`: Mocking utilities
 
