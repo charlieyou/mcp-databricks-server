@@ -12,7 +12,11 @@ from databricks.sdk.service.catalog import (
     SchemaInfo,
     TableInfo,
 )
-from databricks.sdk.service.sql import StatementResponse, StatementState
+from databricks.sdk.service.sql import (
+    StatementParameterListItem,
+    StatementResponse,
+    StatementState,
+)
 from dotenv import load_dotenv
 
 # Load environment variables from .env file when the module is imported
@@ -328,16 +332,25 @@ def _get_table_lineage(table_full_name: str) -> Dict[str, Any]:
             "error": "DATABRICKS_SQL_WAREHOUSE_ID is not set. Cannot fetch lineage.",
         }
 
-    lineage_sql_query = f"""
+    lineage_sql_query = """
     SELECT source_table_full_name, target_table_full_name, entity_type, entity_id, 
            entity_run_id, entity_metadata, created_by, event_time
     FROM system.access.table_lineage
-    WHERE source_table_full_name = '{table_full_name}' OR target_table_full_name = '{table_full_name}'
+    WHERE source_table_full_name = :table_name OR target_table_full_name = :table_name
     ORDER BY event_time DESC LIMIT 100;
     """
     logger.info(f"Fetching and processing lineage for table: {table_full_name}")
+    
+    parameters = [
+        StatementParameterListItem(name="table_name", value=table_full_name, type="STRING")
+    ]
+    
     # execute_databricks_sql will now use the global warehouse_id
-    raw_lineage_output = execute_databricks_sql(lineage_sql_query, wait_timeout="50s")
+    raw_lineage_output = execute_databricks_sql(
+        lineage_sql_query, 
+        wait_timeout="50s",
+        parameters=parameters
+    )
     return _process_lineage_results(raw_lineage_output, table_full_name)
 
 
@@ -396,7 +409,11 @@ def _format_single_table_md(
     return table_markdown_parts
 
 
-def execute_databricks_sql(sql_query: str, wait_timeout: str = "50s") -> Dict[str, Any]:
+def execute_databricks_sql(
+    sql_query: str,
+    wait_timeout: str = "50s",
+    parameters: Optional[List[StatementParameterListItem]] = None,
+) -> Dict[str, Any]:
     """
     Executes a SQL query on Databricks using the global SDK client and global SQL warehouse ID.
     """
@@ -415,6 +432,7 @@ def execute_databricks_sql(sql_query: str, wait_timeout: str = "50s") -> Dict[st
             statement=sql_query,
             warehouse_id=DATABRICKS_SQL_WAREHOUSE_ID,  # Use global warehouse ID
             wait_timeout=wait_timeout,
+            parameters=parameters,
         )
 
         if response.status and response.status.state == StatementState.SUCCEEDED:

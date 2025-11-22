@@ -12,7 +12,6 @@ def format_query_results(result: Dict[str, Any]) -> str:
 
     # Try to parse as output from execute_databricks_sql (SDK based)
     if result.get("status") == "success" and "data" in result:
-        print("Formatting results from SDK-based execute_databricks_sql output.")
         sdk_data = result.get("data", [])
         if not sdk_data:  # No rows, but query was successful
             # Try to get column names if available even with no data (e.g., from a manifest if we adapt execute_databricks_sql later)
@@ -47,7 +46,6 @@ def format_query_results(result: Dict[str, Any]) -> str:
 
     # Try to parse as old direct API style output (from dbapi.execute_statement)
     elif "manifest" in result and "result" in result:
-        print("Formatting results from original dbapi.execute_statement output.")
         if result["manifest"].get("schema") and result["manifest"]["schema"].get(
             "columns"
         ):
