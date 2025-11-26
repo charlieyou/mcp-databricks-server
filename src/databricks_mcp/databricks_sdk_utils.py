@@ -455,6 +455,14 @@ def execute_databricks_sql(
                     "data": [],
                     "message": "Query succeeded but returned no data.",
                 }
+        elif response.status and response.status.state in (
+            StatementState.PENDING,
+            StatementState.RUNNING,
+        ):
+            return {
+                "status": "error",
+                "error": f"Query timed out after {wait_timeout}. The query is still running on the server.",
+            }
         elif response.status:
             error_message = (
                 response.status.error.message
