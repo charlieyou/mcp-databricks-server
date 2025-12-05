@@ -10,14 +10,21 @@ from databricks_mcp import databricks_sdk_utils
 from databricks_mcp.databricks_sdk_utils import (
     DatabricksConfigError,
     _format_column_details_md,
+    _format_run_state_md,
+    _format_timestamp,
     _process_lineage_results,
     clear_lineage_cache,
     execute_databricks_sql,
+    get_job,
+    get_job_run,
+    get_job_run_output,
     get_sdk_client,
     get_uc_all_catalogs_summary,
     get_uc_catalog_details,
     get_uc_schema_details,
     get_uc_table_details,
+    list_job_runs,
+    list_jobs,
 )
 
 
@@ -485,3 +492,369 @@ class TestLineageCache:
 
         assert len(databricks_sdk_utils._job_cache) == 0
         assert len(databricks_sdk_utils._notebook_cache) == 0
+
+
+# ============================================================================
+# Job-related tests
+# ============================================================================
+
+
+class TestFormatHelpers:
+    """Test cases for job formatting helper functions."""
+
+    def test_format_run_state_md_with_all_fields(self):
+        """Test formatting run state with all fields."""
+        from databricks.sdk.service.jobs import RunState, RunLifeCycleState, RunResultState
+
+        state = Mock(spec=RunState)
+        state.life_cycle_state = RunLifeCycleState.TERMINATED
+        state.result_state = RunResultState.SUCCESS
+        state.state_message = "Run completed"
+
+        result = _format_run_state_md(state)
+
+        assert "TERMINATED" in result
+        assert "SUCCESS" in result
+        assert "Run completed" in result
+
+    def test_format_run_state_md_none(self):
+        """Test formatting None run state."""
+        result = _format_run_state_md(None)
+        assert result == "Unknown"
+
+    def test_format_timestamp_valid(self):
+        """Test formatting a valid timestamp."""
+        # Jan 1, 2024 00:00:00 UTC - test returns a valid datetime string
+        ts_ms = 1704067200000
+        result = _format_timestamp(ts_ms)
+        # Should return a date string in YYYY-MM-DD HH:MM:SS format
+        assert len(result) == 19  # "YYYY-MM-DD HH:MM:SS"
+        assert "-" in result
+        assert ":" in result
+
+    def test_format_timestamp_none(self):
+        """Test formatting None timestamp."""
+        result = _format_timestamp(None)
+        assert result == "N/A"
+
+
+class TestGetJob:
+    """Test cases for get_job function."""
+
+    def test_get_job_success(self, setup_env_vars):
+        """Test getting job details successfully."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_job = Mock()
+            mock_job.job_id = 12345
+            mock_job.creator_user_name = "user@example.com"
+            mock_job.created_time = 1704067200000
+
+            mock_settings = Mock()
+            mock_settings.name = "Test Job"
+            mock_settings.description = "A test job"
+            mock_settings.schedule = None
+            mock_settings.max_concurrent_runs = 1
+            mock_settings.tasks = []
+            mock_settings.job_clusters = []
+            mock_job.settings = mock_settings
+
+            mock_client.jobs.get.return_value = mock_job
+            mock_get_client.return_value = mock_client
+
+            result = get_job(12345)
+
+            assert "Test Job" in result
+            assert "12345" in result
+            assert "user@example.com" in result
+
+    def test_get_job_with_tasks(self, setup_env_vars):
+        """Test getting job with tasks."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_job = Mock()
+            mock_job.job_id = 12345
+            mock_job.creator_user_name = None
+            mock_job.created_time = None
+
+            mock_task = Mock()
+            mock_task.task_key = "task1"
+            mock_task.description = "Test task"
+            mock_task.notebook_task = Mock()
+            mock_task.notebook_task.notebook_path = "/Shared/my_notebook"
+            mock_task.spark_python_task = None
+            mock_task.spark_jar_task = None
+            mock_task.sql_task = None
+            mock_task.dbt_task = None
+            mock_task.python_wheel_task = None
+            mock_task.depends_on = None
+            mock_task.timeout_seconds = 3600
+
+            mock_settings = Mock()
+            mock_settings.name = "Job With Tasks"
+            mock_settings.description = None
+            mock_settings.schedule = None
+            mock_settings.max_concurrent_runs = None
+            mock_settings.tasks = [mock_task]
+            mock_settings.job_clusters = []
+            mock_job.settings = mock_settings
+
+            mock_client.jobs.get.return_value = mock_job
+            mock_get_client.return_value = mock_client
+
+            result = get_job(12345)
+
+            assert "Job With Tasks" in result
+            assert "task1" in result
+            assert "Notebook" in result
+            assert "/Shared/my_notebook" in result
+
+    def test_get_job_error(self, setup_env_vars):
+        """Test getting job with error."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.jobs.get.side_effect = Exception("Job not found")
+            mock_get_client.return_value = mock_client
+
+            result = get_job(99999)
+
+            assert "Error" in result
+            assert "Job not found" in result
+
+
+class TestListJobs:
+    """Test cases for list_jobs function."""
+
+    def test_list_jobs_success(self, setup_env_vars):
+        """Test listing jobs successfully."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            from databricks.sdk.service.jobs import BaseJob
+
+            mock_client = Mock()
+
+            mock_job = Mock(spec=BaseJob)
+            mock_job.job_id = 12345
+            mock_job.creator_user_name = "user@example.com"
+            mock_job.created_time = 1704067200000
+            mock_settings = Mock()
+            mock_settings.name = "Test Job"
+            mock_settings.tasks = []
+            mock_job.settings = mock_settings
+
+            mock_client.jobs.list.return_value = [mock_job]
+            mock_get_client.return_value = mock_client
+
+            result = list_jobs()
+
+            assert "Test Job" in result
+            assert "12345" in result
+
+    def test_list_jobs_empty(self, setup_env_vars):
+        """Test listing jobs with no results."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.jobs.list.return_value = []
+            mock_get_client.return_value = mock_client
+
+            result = list_jobs()
+
+            assert "No jobs found" in result
+
+    def test_list_jobs_error(self, setup_env_vars):
+        """Test listing jobs with error."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.jobs.list.side_effect = Exception("API error")
+            mock_get_client.return_value = mock_client
+
+            result = list_jobs()
+
+            assert "Error" in result
+            assert "API error" in result
+
+
+class TestGetJobRun:
+    """Test cases for get_job_run function."""
+
+    def test_get_job_run_success(self, setup_env_vars):
+        """Test getting job run details successfully."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            from databricks.sdk.service.jobs import Run, RunLifeCycleState
+
+            mock_client = Mock()
+            mock_run = Mock(spec=Run)
+            mock_run.run_id = 54321
+            mock_run.job_id = 12345
+            mock_run.run_name = "Test Run"
+            mock_run.number_in_job = 1
+            mock_run.start_time = 1704067200000
+            mock_run.end_time = 1704070800000
+            mock_run.execution_duration = 3600000
+
+            mock_state = Mock()
+            mock_state.life_cycle_state = RunLifeCycleState.TERMINATED
+            mock_state.result_state = None
+            mock_state.state_message = None
+            mock_run.state = mock_state
+
+            mock_run.trigger = None
+            mock_run.run_page_url = "https://databricks.com/run/54321"
+            mock_run.tasks = []
+            mock_run.cluster_instance = None
+
+            mock_client.jobs.get_run.return_value = mock_run
+            mock_get_client.return_value = mock_client
+
+            result = get_job_run(54321)
+
+            assert "Test Run" in result
+            assert "54321" in result
+            assert "12345" in result
+
+    def test_get_job_run_error(self, setup_env_vars):
+        """Test getting job run with error."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.jobs.get_run.side_effect = Exception("Run not found")
+            mock_get_client.return_value = mock_client
+
+            result = get_job_run(99999)
+
+            assert "Error" in result
+            assert "Run not found" in result
+
+
+class TestGetJobRunOutput:
+    """Test cases for get_job_run_output function."""
+
+    def test_get_job_run_output_success(self, setup_env_vars):
+        """Test getting job run output successfully."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_output = Mock()
+
+            mock_metadata = Mock()
+            mock_metadata.job_id = 12345
+            mock_metadata.run_id = 54321
+            mock_metadata.state = None
+            mock_metadata.start_time = 1704067200000
+            mock_metadata.end_time = 1704070800000
+            mock_output.metadata = mock_metadata
+
+            mock_notebook_output = Mock()
+            mock_notebook_output.result = "Output result"
+            mock_notebook_output.truncated = False
+            mock_output.notebook_output = mock_notebook_output
+
+            mock_output.sql_output = None
+            mock_output.dbt_output = None
+            mock_output.logs = "Log output"
+            mock_output.logs_truncated = False
+            mock_output.error = None
+            mock_output.error_trace = None
+
+            mock_client.jobs.get_run_output.return_value = mock_output
+            mock_get_client.return_value = mock_client
+
+            result = get_job_run_output(54321)
+
+            assert "54321" in result
+            assert "Output result" in result
+            assert "Log output" in result
+
+    def test_get_job_run_output_error(self, setup_env_vars):
+        """Test getting job run output with error."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.jobs.get_run_output.side_effect = Exception("Output not found")
+            mock_get_client.return_value = mock_client
+
+            result = get_job_run_output(99999)
+
+            assert "Error" in result
+            assert "Output not found" in result
+
+
+class TestListJobRuns:
+    """Test cases for list_job_runs function."""
+
+    def test_list_job_runs_success(self, setup_env_vars):
+        """Test listing job runs successfully."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            from databricks.sdk.service.jobs import BaseRun, RunLifeCycleState
+
+            mock_client = Mock()
+
+            mock_run = Mock(spec=BaseRun)
+            mock_run.run_id = 54321
+            mock_run.job_id = 12345
+            mock_run.run_name = "Test Run"
+            mock_run.start_time = 1704067200000
+            mock_run.end_time = 1704070800000
+            mock_run.run_page_url = "https://databricks.com/run/54321"
+            mock_run.tasks = []
+
+            mock_state = Mock()
+            mock_state.life_cycle_state = RunLifeCycleState.TERMINATED
+            mock_state.result_state = None
+            mock_state.state_message = None
+            mock_run.state = mock_state
+
+            mock_client.jobs.list_runs.return_value = [mock_run]
+            mock_get_client.return_value = mock_client
+
+            result = list_job_runs(job_id=12345)
+
+            assert "Test Run" in result
+            assert "54321" in result
+            assert "12345" in result
+            assert "Total" in result
+
+    def test_list_job_runs_empty(self, setup_env_vars):
+        """Test listing job runs with no results."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.jobs.list_runs.return_value = []
+            mock_get_client.return_value = mock_client
+
+            result = list_job_runs(job_id=12345)
+
+            assert "No runs found" in result
+
+    def test_list_job_runs_error(self, setup_env_vars):
+        """Test listing job runs with error."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_sdk_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.jobs.list_runs.side_effect = Exception("API error")
+            mock_get_client.return_value = mock_client
+
+            result = list_job_runs()
+
+            assert "Error" in result
+            assert "API error" in result

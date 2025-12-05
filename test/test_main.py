@@ -10,6 +10,11 @@ from databricks_mcp.main import (
     describe_uc_schema,
     list_uc_catalogs,
     format_exception_md,
+    get_databricks_job,
+    list_databricks_jobs,
+    get_databricks_job_run,
+    get_databricks_job_run_output,
+    list_databricks_job_runs,
 )
 from databricks_mcp.databricks_sdk_utils import DatabricksConfigError
 
@@ -347,3 +352,307 @@ class TestIntegration:
 
             assert len(results) == 3
             assert mock_execute.call_count == 3
+
+
+# ============================================================================
+# Job-related MCP tool tests
+# ============================================================================
+
+
+class TestGetDatabricksJob:
+    """Test cases for get_databricks_job tool."""
+
+    @pytest.mark.asyncio
+    async def test_get_job_success(self, setup_env_vars):
+        """Test successful job retrieval."""
+        with patch("databricks_mcp.main.get_job") as mock_get_job:
+            mock_get_job.return_value = "# Job: **Test Job**\n**Job ID**: `12345`"
+
+            result = await get_databricks_job(12345)
+
+            assert "Test Job" in result
+            assert "12345" in result
+            mock_get_job.assert_called_once_with(job_id=12345)
+
+    @pytest.mark.asyncio
+    async def test_get_job_config_error(self, setup_env_vars):
+        """Test job retrieval with config error."""
+        with patch("databricks_mcp.main.get_job") as mock_get_job:
+            mock_get_job.side_effect = DatabricksConfigError("Token missing")
+
+            result = await get_databricks_job(12345)
+
+            assert "Databricks not configured" in result
+            assert "Token missing" in result
+
+    @pytest.mark.asyncio
+    async def test_get_job_unexpected_error(self, setup_env_vars):
+        """Test job retrieval with unexpected error."""
+        with patch("databricks_mcp.main.get_job") as mock_get_job:
+            mock_get_job.side_effect = Exception("API timeout")
+
+            result = await get_databricks_job(12345)
+
+            assert "Unexpected error" in result
+            assert "API timeout" in result
+
+
+class TestListDatabricksJobs:
+    """Test cases for list_databricks_jobs tool."""
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_success(self, setup_env_vars):
+        """Test successful job listing."""
+        with patch("databricks_mcp.main.list_jobs") as mock_list:
+            mock_list.return_value = "# Jobs List\n## `Job1` (ID: 1)\n## `Job2` (ID: 2)"
+
+            result = await list_databricks_jobs()
+
+            assert "Job1" in result
+            assert "Job2" in result
+            mock_list.assert_called_once_with(name=None, expand_tasks=False)
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_with_filter(self, setup_env_vars):
+        """Test job listing with name filter."""
+        with patch("databricks_mcp.main.list_jobs") as mock_list:
+            mock_list.return_value = "# Jobs List\n**Filter**: name contains `ETL`"
+
+            result = await list_databricks_jobs(name="ETL", expand_tasks=True)
+
+            assert "ETL" in result
+            mock_list.assert_called_once_with(name="ETL", expand_tasks=True)
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_empty(self, setup_env_vars):
+        """Test job listing with no results."""
+        with patch("databricks_mcp.main.list_jobs") as mock_list:
+            mock_list.return_value = "# Jobs List\n*No jobs found.*"
+
+            result = await list_databricks_jobs()
+
+            assert "No jobs found" in result
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_error(self, setup_env_vars):
+        """Test job listing with error."""
+        with patch("databricks_mcp.main.list_jobs") as mock_list:
+            mock_list.side_effect = Exception("Connection refused")
+
+            result = await list_databricks_jobs()
+
+            assert "Unexpected error" in result
+            assert "Connection refused" in result
+
+
+class TestGetDatabricksJobRun:
+    """Test cases for get_databricks_job_run tool."""
+
+    @pytest.mark.asyncio
+    async def test_get_run_success(self, setup_env_vars):
+        """Test successful run retrieval."""
+        with patch("databricks_mcp.main.get_job_run") as mock_get_run:
+            mock_get_run.return_value = (
+                "# Run: **Test Run**\n**Run ID**: `54321`\n**Job ID**: `12345`"
+            )
+
+            result = await get_databricks_job_run(54321)
+
+            assert "Test Run" in result
+            assert "54321" in result
+            mock_get_run.assert_called_once_with(run_id=54321)
+
+    @pytest.mark.asyncio
+    async def test_get_run_config_error(self, setup_env_vars):
+        """Test run retrieval with config error."""
+        with patch("databricks_mcp.main.get_job_run") as mock_get_run:
+            mock_get_run.side_effect = DatabricksConfigError("Auth expired")
+
+            result = await get_databricks_job_run(54321)
+
+            assert "Databricks not configured" in result
+
+    @pytest.mark.asyncio
+    async def test_get_run_unexpected_error(self, setup_env_vars):
+        """Test run retrieval with unexpected error."""
+        with patch("databricks_mcp.main.get_job_run") as mock_get_run:
+            mock_get_run.side_effect = Exception("Run not found")
+
+            result = await get_databricks_job_run(99999)
+
+            assert "Unexpected error" in result
+            assert "Run not found" in result
+
+
+class TestGetDatabricksJobRunOutput:
+    """Test cases for get_databricks_job_run_output tool."""
+
+    @pytest.mark.asyncio
+    async def test_get_run_output_success(self, setup_env_vars):
+        """Test successful run output retrieval."""
+        with patch("databricks_mcp.main.get_job_run_output") as mock_get_output:
+            mock_get_output.return_value = (
+                "# Run Output (Run ID: 54321)\n## Notebook Output\n```\nResult: OK\n```"
+            )
+
+            result = await get_databricks_job_run_output(54321)
+
+            assert "54321" in result
+            assert "Notebook Output" in result
+            mock_get_output.assert_called_once_with(run_id=54321)
+
+    @pytest.mark.asyncio
+    async def test_get_run_output_with_logs(self, setup_env_vars):
+        """Test run output with logs."""
+        with patch("databricks_mcp.main.get_job_run_output") as mock_get_output:
+            mock_get_output.return_value = "# Run Output\n## Logs\n```\nLog line 1\n```"
+
+            result = await get_databricks_job_run_output(54321)
+
+            assert "Logs" in result
+
+    @pytest.mark.asyncio
+    async def test_get_run_output_error(self, setup_env_vars):
+        """Test run output with error."""
+        with patch("databricks_mcp.main.get_job_run_output") as mock_get_output:
+            mock_get_output.side_effect = Exception("Output unavailable")
+
+            result = await get_databricks_job_run_output(54321)
+
+            assert "Unexpected error" in result
+            assert "Output unavailable" in result
+
+
+class TestListDatabricksJobRuns:
+    """Test cases for list_databricks_job_runs tool."""
+
+    @pytest.mark.asyncio
+    async def test_list_runs_success(self, setup_env_vars):
+        """Test successful run listing."""
+        with patch("databricks_mcp.main.list_job_runs") as mock_list:
+            mock_list.return_value = "# Job Runs\n## Run 1\n- **Run ID**: `1`"
+
+            result = await list_databricks_job_runs(job_id=12345)
+
+            assert "Job Runs" in result
+            mock_list.assert_called_once_with(
+                job_id=12345,
+                active_only=False,
+                completed_only=False,
+                expand_tasks=False,
+                start_time_from=None,
+                start_time_to=None,
+                max_results=25,
+            )
+
+    @pytest.mark.asyncio
+    async def test_list_runs_active_only(self, setup_env_vars):
+        """Test listing active runs only."""
+        with patch("databricks_mcp.main.list_job_runs") as mock_list:
+            mock_list.return_value = "# Job Runs\n**Filters**: active_only=true"
+
+            result = await list_databricks_job_runs(active_only=True)
+
+            assert "active_only" in result
+            mock_list.assert_called_once()
+            call_kwargs = mock_list.call_args[1]
+            assert call_kwargs["active_only"] is True
+
+    @pytest.mark.asyncio
+    async def test_list_runs_with_time_filter(self, setup_env_vars):
+        """Test listing runs with time filters."""
+        with patch("databricks_mcp.main.list_job_runs") as mock_list:
+            mock_list.return_value = "# Job Runs\n**Filters**: start_time_from=..."
+
+            await list_databricks_job_runs(
+                start_time_from=1704067200000, start_time_to=1704153600000
+            )
+
+            mock_list.assert_called_once()
+            call_kwargs = mock_list.call_args[1]
+            assert call_kwargs["start_time_from"] == 1704067200000
+            assert call_kwargs["start_time_to"] == 1704153600000
+
+    @pytest.mark.asyncio
+    async def test_list_runs_with_limit(self, setup_env_vars):
+        """Test listing runs with custom limit."""
+        with patch("databricks_mcp.main.list_job_runs") as mock_list:
+            mock_list.return_value = "# Job Runs\n## Run 1"
+
+            await list_databricks_job_runs(job_id=12345, limit=10)
+
+            mock_list.assert_called_once()
+            call_kwargs = mock_list.call_args[1]
+            assert call_kwargs["max_results"] == 10
+
+    @pytest.mark.asyncio
+    async def test_list_runs_empty(self, setup_env_vars):
+        """Test listing runs with no results."""
+        with patch("databricks_mcp.main.list_job_runs") as mock_list:
+            mock_list.return_value = "# Job Runs\n*No runs found.*"
+
+            result = await list_databricks_job_runs(job_id=99999)
+
+            assert "No runs found" in result
+
+    @pytest.mark.asyncio
+    async def test_list_runs_error(self, setup_env_vars):
+        """Test listing runs with error."""
+        with patch("databricks_mcp.main.list_job_runs") as mock_list:
+            mock_list.side_effect = Exception("Database error")
+
+            result = await list_databricks_job_runs()
+
+            assert "Unexpected error" in result
+            assert "Database error" in result
+
+
+class TestJobToolsIntegration:
+    """Integration tests for job-related tools working together."""
+
+    @pytest.mark.asyncio
+    async def test_job_to_runs_flow(self, setup_env_vars):
+        """Test the flow of listing jobs -> getting job -> listing runs."""
+        with (
+            patch("databricks_mcp.main.list_jobs") as mock_list_jobs,
+            patch("databricks_mcp.main.get_job") as mock_get_job,
+            patch("databricks_mcp.main.list_job_runs") as mock_list_runs,
+            patch("databricks_mcp.main.get_job_run") as mock_get_run,
+        ):
+            mock_list_jobs.return_value = "# Jobs\n## `ETL Job` (ID: 12345)"
+            mock_get_job.return_value = "# Job: **ETL Job**\n## Tasks\n### Task: `task1`"
+            mock_list_runs.return_value = "# Job Runs\n## Run 54321\n- **Status**: TERMINATED"
+            mock_get_run.return_value = "# Run: **Run 54321**\n## State\n**Status**: SUCCESS"
+
+            # List jobs
+            jobs = await list_databricks_jobs()
+            assert "ETL Job" in jobs
+
+            # Get specific job
+            job_details = await get_databricks_job(12345)
+            assert "task1" in job_details
+
+            # List runs for job
+            runs = await list_databricks_job_runs(job_id=12345)
+            assert "54321" in runs
+
+            # Get specific run
+            run_details = await get_databricks_job_run(54321)
+            assert "SUCCESS" in run_details
+
+    @pytest.mark.asyncio
+    async def test_concurrent_job_queries(self, setup_env_vars):
+        """Test multiple concurrent job queries."""
+        with patch("databricks_mcp.main.get_job") as mock_get_job:
+            mock_get_job.return_value = "# Job: **Test**"
+
+            queries = [
+                get_databricks_job(1),
+                get_databricks_job(2),
+                get_databricks_job(3),
+            ]
+
+            results = await asyncio.gather(*queries)
+
+            assert len(results) == 3
+            assert mock_get_job.call_count == 3

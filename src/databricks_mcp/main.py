@@ -7,10 +7,15 @@ from .databricks_formatter import format_query_results
 from .databricks_sdk_utils import (
     DatabricksConfigError,
     execute_databricks_sql,
+    get_job,
+    get_job_run,
+    get_job_run_output,
     get_uc_all_catalogs_summary,
     get_uc_catalog_details,
     get_uc_schema_details,
     get_uc_table_details,
+    list_job_runs,
+    list_jobs,
 )
 
 mcp = FastMCP("databricks")
@@ -185,6 +190,144 @@ async def list_uc_catalogs() -> str:
     """
     summary_markdown = await asyncio.to_thread(get_uc_all_catalogs_summary)
     return summary_markdown
+
+
+# ============================================================================
+# Job-related MCP tools
+# ============================================================================
+
+
+@mcp.tool()
+@handle_tool_errors("get_databricks_job")
+async def get_databricks_job(job_id: int) -> str:
+    """
+    Retrieves details for a specific Databricks job by its job ID.
+
+    Use this tool to get comprehensive information about a job including:
+    - Job name, description, and creator
+    - Schedule configuration (cron expression, timezone, pause status)
+    - Task definitions (notebook, spark python, spark jar, SQL, dbt tasks)
+    - Task dependencies and timeout settings
+    - Job cluster configurations
+
+    The output is formatted in Markdown.
+
+    Args:
+        job_id: The unique identifier of the job to retrieve.
+    """
+    return await asyncio.to_thread(get_job, job_id=job_id)
+
+
+@mcp.tool()
+@handle_tool_errors("list_databricks_jobs")
+async def list_databricks_jobs(
+    name: str | None = None,
+    expand_tasks: bool = False,
+) -> str:
+    """
+    Lists all Databricks jobs in the workspace with optional filtering.
+
+    Use this tool to discover available jobs or search for specific jobs by name.
+    Results include job IDs, names, creators, and creation timestamps.
+
+    The output is formatted in Markdown.
+
+    Args:
+        name: Optional filter to find jobs whose names contain this string.
+        expand_tasks: If True, includes task keys in the output (default: False).
+    """
+    return await asyncio.to_thread(
+        list_jobs,
+        name=name,
+        expand_tasks=expand_tasks,
+    )
+
+
+@mcp.tool()
+@handle_tool_errors("get_databricks_job_run")
+async def get_databricks_job_run(run_id: int) -> str:
+    """
+    Retrieves details for a specific job run by its run ID.
+
+    Use this tool to get comprehensive information about a job run including:
+    - Run state (lifecycle state, result state, state message)
+    - Timing information (start time, end time, duration)
+    - Individual task run details with their states
+    - Cluster information
+    - Link to the Databricks UI
+
+    The output is formatted in Markdown.
+
+    Args:
+        run_id: The unique identifier of the run to retrieve.
+    """
+    return await asyncio.to_thread(get_job_run, run_id=run_id)
+
+
+@mcp.tool()
+@handle_tool_errors("get_databricks_job_run_output")
+async def get_databricks_job_run_output(run_id: int) -> str:
+    """
+    Retrieves the output of a specific job run by its run ID.
+
+    Use this tool to get the results and logs from a completed job run including:
+    - Run metadata (job ID, status, timing)
+    - Notebook output (result value)
+    - SQL output (link to results)
+    - dbt output (artifacts link)
+    - Execution logs
+    - Error messages and stack traces (if the run failed)
+
+    The output is formatted in Markdown.
+
+    Args:
+        run_id: The unique identifier of the run whose output to retrieve.
+    """
+    return await asyncio.to_thread(get_job_run_output, run_id=run_id)
+
+
+@mcp.tool()
+@handle_tool_errors("list_databricks_job_runs")
+async def list_databricks_job_runs(
+    job_id: int | None = None,
+    active_only: bool = False,
+    completed_only: bool = False,
+    expand_tasks: bool = False,
+    start_time_from: int | None = None,
+    start_time_to: int | None = None,
+    limit: int = 25,
+) -> str:
+    """
+    Lists all job runs with optional filtering by job ID, status, and time range.
+
+    Use this tool to find job runs based on various criteria:
+    - Filter by specific job ID
+    - Filter by run status (active or completed)
+    - Filter by start time range (milliseconds since epoch)
+
+    Results include run IDs, states, timing, and links to the Databricks UI.
+
+    The output is formatted in Markdown.
+
+    Args:
+        job_id: Optional job ID to filter runs for a specific job.
+        active_only: If True, only returns currently running jobs (default: False).
+        completed_only: If True, only returns completed jobs (default: False).
+        expand_tasks: If True, includes task-level details in the output (default: False).
+        start_time_from: Optional filter for runs started after this time (milliseconds since epoch).
+        start_time_to: Optional filter for runs started before this time (milliseconds since epoch).
+        limit: Maximum number of runs to return (default: 25). Auto-paginates if needed.
+    """
+    return await asyncio.to_thread(
+        list_job_runs,
+        job_id=job_id,
+        active_only=active_only,
+        completed_only=completed_only,
+        expand_tasks=expand_tasks,
+        start_time_from=start_time_from,
+        start_time_to=start_time_to,
+        max_results=limit,
+    )
 
 
 def main():
