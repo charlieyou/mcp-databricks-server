@@ -2,6 +2,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +19,7 @@ from databricks.sdk.service.jobs import (
     BaseRun,
     Run,
     RunState,
+    ViewsToExport,
 )
 from databricks.sdk.service.sql import (
     StatementParameterListItem,
@@ -328,6 +330,147 @@ def clear_lineage_cache():
     logger.info("Cleared lineage caches")
 
 
+def _validate_table_name(table_full_name: str) -> str:
+    """
+    Validates and quotes a fully qualified table name to prevent SQL injection.
+    Returns the quoted table name (e.g., `catalog`.`schema`.`table`).
+    Raises ValueError if the table name is invalid.
+    """
+    parts = table_full_name.split(".")
+    if len(parts) != 3 or any(not p for p in parts):
+        raise ValueError(
+            f"Invalid table name '{table_full_name}'. Expected format: catalog.schema.table"
+        )
+
+    safe_parts = []
+    for p in parts:
+        if not re.match(r"^[A-Za-z0-9_]+$", p):
+            raise ValueError(
+                f"Invalid identifier '{p}' in '{table_full_name}'. "
+                "Only letters, numbers, and underscores are allowed."
+            )
+        safe_parts.append(f"`{p}`")
+
+    return ".".join(safe_parts)
+
+
+def get_table_history(
+    table_full_name: str,
+    limit: int = 10,
+    start_timestamp: Optional[str] = None,
+    end_timestamp: Optional[str] = None,
+) -> str:
+    """
+    Retrieves Delta table history using DESCRIBE HISTORY SQL command.
+    Returns formatted Markdown with version history.
+
+    Args:
+        table_full_name: Fully qualified table name (catalog.schema.table)
+        limit: Maximum number of history records to return (default 10, max 1000)
+        start_timestamp: Filter history after this timestamp (ISO format)
+        end_timestamp: Filter history before this timestamp (ISO format)
+    """
+    if not DATABRICKS_SQL_WAREHOUSE_ID:
+        return "# Error: Table History\n\n`DATABRICKS_SQL_WAREHOUSE_ID` is not set. Cannot fetch history."
+
+    # Validate table name to prevent SQL injection
+    try:
+        quoted_table_name = _validate_table_name(table_full_name)
+    except ValueError as e:
+        return f"# Error: Table History\n\n{e}"
+
+    # Validate and clamp limit
+    if limit is None or limit <= 0:
+        limit = 10
+    if limit > 1000:
+        limit = 1000
+
+    # Build parameterized query for timestamp filters
+    parameters: List[StatementParameterListItem] = []
+    where_clauses: List[str] = []
+
+    if start_timestamp:
+        where_clauses.append("timestamp >= :start_ts")
+        parameters.append(
+            StatementParameterListItem(
+                name="start_ts", value=start_timestamp, type="STRING"
+            )
+        )
+    if end_timestamp:
+        where_clauses.append("timestamp <= :end_ts")
+        parameters.append(
+            StatementParameterListItem(
+                name="end_ts", value=end_timestamp, type="STRING"
+            )
+        )
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    history_sql_query = f"""
+    SELECT version, timestamp, operation, userName, operationParameters, operationMetrics
+    FROM (DESCRIBE HISTORY {quoted_table_name})
+    {where_sql}
+    ORDER BY version DESC
+    LIMIT {limit}
+    """
+    logger.info(f"Fetching history for table: {table_full_name}")
+
+    result = execute_databricks_sql(
+        history_sql_query,
+        wait_timeout="30s",
+        parameters=parameters if parameters else None,
+    )
+
+    markdown_parts = [f"# Table History: `{table_full_name}`", ""]
+
+    # Handle error and failed states
+    status = result.get("status")
+    if status in ("error", "failed"):
+        error_msg = result.get("error", "Unknown error")
+        details = result.get("details")
+        markdown_parts.append(f"**Error**: {error_msg}")
+        if details:
+            markdown_parts.extend(["", "```", str(details), "```"])
+        return "\n".join(markdown_parts)
+
+    if status != "success":
+        markdown_parts.append(
+            f"**Error**: Unexpected status `{status}` from history query."
+        )
+        return "\n".join(markdown_parts)
+
+    data = result.get("data") or []
+    if not data:
+        markdown_parts.append("*No history records found.*")
+        return "\n".join(markdown_parts)
+
+    filters = []
+    if start_timestamp:
+        filters.append(f"after {start_timestamp}")
+    if end_timestamp:
+        filters.append(f"before {end_timestamp}")
+    if filters:
+        markdown_parts.append(f"**Filters**: {', '.join(filters)}")
+        markdown_parts.append("")
+
+    markdown_parts.append(f"**Showing**: {len(data)} records (limit: {limit})")
+    markdown_parts.append("")
+
+    markdown_parts.append("| Version | Timestamp | Operation | User |")
+    markdown_parts.append("|---------|-----------|-----------|------|")
+
+    for row in data:
+        version = row.get("version", "N/A")
+        timestamp = row.get("timestamp", "N/A")
+        operation = row.get("operation", "N/A")
+        user_name = row.get("userName", "N/A")
+        markdown_parts.append(
+            f"| {version} | {timestamp} | {operation} | {user_name} |"
+        )
+
+    return "\n".join(markdown_parts)
+
+
 def _get_table_lineage(table_full_name: str) -> Dict[str, Any]:
     """
     Retrieves table lineage information for a given table using the global SDK client
@@ -347,16 +490,16 @@ def _get_table_lineage(table_full_name: str) -> Dict[str, Any]:
     ORDER BY event_time DESC LIMIT 100;
     """
     logger.info(f"Fetching and processing lineage for table: {table_full_name}")
-    
+
     parameters = [
-        StatementParameterListItem(name="table_name", value=table_full_name, type="STRING")
+        StatementParameterListItem(
+            name="table_name", value=table_full_name, type="STRING"
+        )
     ]
-    
+
     # execute_databricks_sql will now use the global warehouse_id
     raw_lineage_output = execute_databricks_sql(
-        lineage_sql_query, 
-        wait_timeout="50s",
-        parameters=parameters
+        lineage_sql_query, wait_timeout="50s", parameters=parameters
     )
     return _process_lineage_results(raw_lineage_output, table_full_name)
 
@@ -861,13 +1004,18 @@ def get_job(job_id: int) -> str:
         client = get_sdk_client()
         job = client.jobs.get(job_id=job_id)
 
-        markdown_parts = [f"# Job: **{job.settings.name if job.settings else 'Unnamed'}**", ""]
+        markdown_parts = [
+            f"# Job: **{job.settings.name if job.settings else 'Unnamed'}**",
+            "",
+        ]
         markdown_parts.append(f"**Job ID**: `{job.job_id}`")
 
         if job.creator_user_name:
             markdown_parts.append(f"**Created by**: {job.creator_user_name}")
         if job.created_time:
-            markdown_parts.append(f"**Created at**: {_format_timestamp(job.created_time)}")
+            markdown_parts.append(
+                f"**Created at**: {_format_timestamp(job.created_time)}"
+            )
 
         if job.settings:
             settings = job.settings
@@ -878,14 +1026,20 @@ def get_job(job_id: int) -> str:
                 schedule = settings.schedule
                 markdown_parts.extend(["", "## Schedule"])
                 if schedule.quartz_cron_expression:
-                    markdown_parts.append(f"- **Cron**: `{schedule.quartz_cron_expression}`")
+                    markdown_parts.append(
+                        f"- **Cron**: `{schedule.quartz_cron_expression}`"
+                    )
                 if schedule.timezone_id:
                     markdown_parts.append(f"- **Timezone**: {schedule.timezone_id}")
                 if schedule.pause_status:
-                    markdown_parts.append(f"- **Status**: {schedule.pause_status.value}")
+                    markdown_parts.append(
+                        f"- **Status**: {schedule.pause_status.value}"
+                    )
 
             if settings.max_concurrent_runs:
-                markdown_parts.append(f"**Max concurrent runs**: {settings.max_concurrent_runs}")
+                markdown_parts.append(
+                    f"**Max concurrent runs**: {settings.max_concurrent_runs}"
+                )
 
             if settings.tasks:
                 markdown_parts.extend(["", "## Tasks"])
@@ -895,14 +1049,20 @@ def get_job(job_id: int) -> str:
                         markdown_parts.append(f"- **Description**: {task.description}")
                     if task.notebook_task:
                         markdown_parts.append("- **Type**: Notebook")
-                        markdown_parts.append(f"- **Path**: `{task.notebook_task.notebook_path}`")
+                        markdown_parts.append(
+                            f"- **Path**: `{task.notebook_task.notebook_path}`"
+                        )
                     elif task.spark_python_task:
                         markdown_parts.append("- **Type**: Spark Python")
-                        markdown_parts.append(f"- **File**: `{task.spark_python_task.python_file}`")
+                        markdown_parts.append(
+                            f"- **File**: `{task.spark_python_task.python_file}`"
+                        )
                     elif task.spark_jar_task:
                         markdown_parts.append("- **Type**: Spark JAR")
                         if task.spark_jar_task.main_class_name:
-                            markdown_parts.append(f"- **Main class**: `{task.spark_jar_task.main_class_name}`")
+                            markdown_parts.append(
+                                f"- **Main class**: `{task.spark_jar_task.main_class_name}`"
+                            )
                     elif task.sql_task:
                         markdown_parts.append("- **Type**: SQL")
                     elif task.dbt_task:
@@ -957,7 +1117,9 @@ def list_jobs(
         if name:
             markdown_parts.append(f"**Filter**: name contains `{name}`")
         if has_more:
-            markdown_parts.append(f"**Showing**: first {len(jobs_list)} jobs (more available)")
+            markdown_parts.append(
+                f"**Showing**: first {len(jobs_list)} jobs (more available)"
+            )
         else:
             markdown_parts.append(f"**Total**: {len(jobs_list)} jobs")
         markdown_parts.append("")
@@ -969,12 +1131,16 @@ def list_jobs(
         for job in jobs_list:
             if not isinstance(job, BaseJob):
                 continue
-            job_name = job.settings.name if job.settings and job.settings.name else "Unnamed"
+            job_name = (
+                job.settings.name if job.settings and job.settings.name else "Unnamed"
+            )
             markdown_parts.append(f"## `{job_name}` (ID: {job.job_id})")
             if job.creator_user_name:
                 markdown_parts.append(f"- **Created by**: {job.creator_user_name}")
             if job.created_time:
-                markdown_parts.append(f"- **Created**: {_format_timestamp(job.created_time)}")
+                markdown_parts.append(
+                    f"- **Created**: {_format_timestamp(job.created_time)}"
+                )
             if expand_tasks and job.settings and job.settings.tasks:
                 task_keys = [t.task_key for t in job.settings.tasks]
                 markdown_parts.append(f"- **Tasks**: {', '.join(task_keys)}")
@@ -1021,16 +1187,24 @@ def get_job_run(run_id: int) -> str:
             markdown_parts.extend(["", f"**Trigger**: {run.trigger.value}"])
 
         if run.run_page_url:
-            markdown_parts.extend(["", f"**[View in Databricks UI]({run.run_page_url})**"])
+            markdown_parts.extend(
+                ["", f"**[View in Databricks UI]({run.run_page_url})**"]
+            )
 
         if run.tasks:
             markdown_parts.extend(["", "## Task Runs"])
             for task_run in run.tasks:
                 markdown_parts.append(f"### Task: `{task_run.task_key}`")
                 markdown_parts.append(f"- **Run ID**: {task_run.run_id}")
-                markdown_parts.append(f"- **Status**: {_format_run_state_md(task_run.state)}")
-                markdown_parts.append(f"- **Started**: {_format_timestamp(task_run.start_time)}")
-                markdown_parts.append(f"- **Ended**: {_format_timestamp(task_run.end_time)}")
+                markdown_parts.append(
+                    f"- **Status**: {_format_run_state_md(task_run.state)}"
+                )
+                markdown_parts.append(
+                    f"- **Started**: {_format_timestamp(task_run.start_time)}"
+                )
+                markdown_parts.append(
+                    f"- **Ended**: {_format_timestamp(task_run.end_time)}"
+                )
                 if task_run.attempt_number:
                     markdown_parts.append(f"- **Attempt**: {task_run.attempt_number}")
                 markdown_parts.append("")
@@ -1038,9 +1212,13 @@ def get_job_run(run_id: int) -> str:
         if run.cluster_instance:
             markdown_parts.extend(["", "## Cluster"])
             if run.cluster_instance.cluster_id:
-                markdown_parts.append(f"- **Cluster ID**: `{run.cluster_instance.cluster_id}`")
+                markdown_parts.append(
+                    f"- **Cluster ID**: `{run.cluster_instance.cluster_id}`"
+                )
             if run.cluster_instance.spark_context_id:
-                markdown_parts.append(f"- **Spark Context**: `{run.cluster_instance.spark_context_id}`")
+                markdown_parts.append(
+                    f"- **Spark Context**: `{run.cluster_instance.spark_context_id}`"
+                )
 
         return "\n".join(markdown_parts)
 
@@ -1070,7 +1248,9 @@ def get_job_run_output(run_id: int) -> str:
             markdown_parts.append(f"- **Job ID**: {meta.job_id}")
             markdown_parts.append(f"- **Run ID**: {meta.run_id}")
             markdown_parts.append(f"- **Status**: {_format_run_state_md(meta.state)}")
-            markdown_parts.append(f"- **Started**: {_format_timestamp(meta.start_time)}")
+            markdown_parts.append(
+                f"- **Started**: {_format_timestamp(meta.start_time)}"
+            )
             markdown_parts.append(f"- **Ended**: {_format_timestamp(meta.end_time)}")
             markdown_parts.append("")
 
@@ -1158,9 +1338,12 @@ def list_job_runs(
         # SDK's active_only filter is unreliable - filter client-side if needed
         if active_only:
             runs_list = [
-                r for r in runs_list
-                if r.state and r.state.life_cycle_state
-                and r.state.life_cycle_state.value in ("PENDING", "RUNNING", "TERMINATING")
+                r
+                for r in runs_list
+                if r.state
+                and r.state.life_cycle_state
+                and r.state.life_cycle_state.value
+                in ("PENDING", "RUNNING", "TERMINATING")
             ]
 
         markdown_parts = ["# Job Runs", ""]
@@ -1180,7 +1363,9 @@ def list_job_runs(
         if filters:
             markdown_parts.append(f"**Filters**: {', '.join(filters)}")
         if has_more:
-            markdown_parts.append(f"**Showing**: first {len(runs_list)} runs (more available)")
+            markdown_parts.append(
+                f"**Showing**: first {len(runs_list)} runs (more available)"
+            )
         else:
             markdown_parts.append(f"**Total**: {len(runs_list)} runs")
         markdown_parts.append("")
@@ -1214,6 +1399,142 @@ def list_job_runs(
 
     except Exception as e:
         return f"""# Error: Could Not List Runs
+**Details:**
+```
+{str(e)}
+```"""
+
+
+def _parse_notebook_html(html_content: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse Databricks notebook HTML export and extract the embedded JSON data.
+    Returns the notebook data dict or None if parsing fails.
+    """
+    import base64
+    import re
+    from urllib.parse import unquote
+
+    match = re.search(r"= '([A-Za-z0-9+/=]{100,})'", html_content)
+    if not match:
+        return None
+
+    try:
+        data = match.group(1)
+        decoded = base64.b64decode(data).decode("utf-8")
+        decoded = unquote(decoded)
+        return json.loads(decoded)
+    except Exception:
+        return None
+
+
+def _format_notebook_as_markdown(notebook: Dict[str, Any]) -> str:
+    """
+    Format a parsed Databricks notebook as clean Markdown with code and outputs.
+    """
+    name = notebook.get("name", "Untitled")
+    language = notebook.get("language", "python")
+    commands = notebook.get("commands", [])
+
+    parts = [f"# Notebook: {name}", f"**Language**: {language}", ""]
+
+    for i, cmd in enumerate(commands, 1):
+        code = cmd.get("command", "").strip()
+        state = cmd.get("state", "")
+
+        if not code:
+            continue
+
+        parts.append(f"## Cell {i}")
+        if state == "error":
+            parts.append("**Status**: ❌ Error")
+        parts.append("")
+        parts.append(f"```{language}")
+        parts.append(code)
+        parts.append("```")
+
+        results = cmd.get("results")
+        if results and results.get("data"):
+            output_lines = []
+            for item in results["data"]:
+                item_type = item.get("type", "")
+                item_data = item.get("data", "")
+
+                if item_type == "ansi" and item_data:
+                    output_lines.append(str(item_data).strip())
+
+            if output_lines:
+                combined_output = "\n".join(output_lines)
+                if len(combined_output) > 2000:
+                    combined_output = combined_output[:2000] + "\n... (truncated)"
+                parts.append("")
+                parts.append("**Output:**")
+                parts.append("```")
+                parts.append(combined_output)
+                parts.append("```")
+
+        error_summary = cmd.get("errorSummary")
+        error_details = cmd.get("error")
+        if error_summary or error_details:
+            parts.append("")
+            parts.append("**Error:**")
+            parts.append("```")
+            if error_summary:
+                parts.append(error_summary)
+            if error_details:
+                parts.append(error_details)
+            parts.append("```")
+
+        parts.append("")
+
+    return "\n".join(parts)
+
+
+def export_task_run(run_id: int, include_dashboards: bool = False) -> str:
+    """
+    Exports a task run as Markdown, including notebook code and outputs.
+    Returns formatted Markdown with code cells and their results.
+
+    Args:
+        run_id: The task run ID (for multi-task jobs, use the individual task's run_id).
+        include_dashboards: If True, exports dashboards in addition to notebooks.
+    """
+    try:
+        client = get_sdk_client()
+        views_to_export = (
+            ViewsToExport.ALL if include_dashboards else ViewsToExport.CODE
+        )
+
+        export_result = client.jobs.export_run(
+            run_id=run_id,
+            views_to_export=views_to_export,
+        )
+
+        if not export_result.views:
+            return f"# Exported Task Run (Run ID: {run_id})\n\n*No views available for this run.*"
+
+        markdown_parts = []
+
+        for view in export_result.views:
+            if not view.content:
+                continue
+
+            notebook = _parse_notebook_html(view.content)
+            if notebook:
+                markdown_parts.append(_format_notebook_as_markdown(notebook))
+            else:
+                view_name = view.name if view.name else "Unnamed View"
+                markdown_parts.append(
+                    f"# {view_name}\n\n*Could not parse notebook content.*"
+                )
+
+        if not markdown_parts:
+            return f"# Exported Task Run (Run ID: {run_id})\n\n*No parseable content found.*"
+
+        return "\n\n---\n\n".join(markdown_parts)
+
+    except Exception as e:
+        return f"""# Error: Could Not Export Task Run
+**Run ID:** `{run_id}`
 **Details:**
 ```
 {str(e)}

@@ -9,8 +9,10 @@ description = "A Model Context Protocol (MCP) server for Databricks Unity Catalo
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "beautifulsoup4>=4.14.3",
     "databricks-sdk==0.55.0",
     "httpx>=0.28.1",
+    "lxml>=6.0.2",
     "mcp[cli]>=1.2.0",
     "python-dotenv>=1.0.0",
 ]

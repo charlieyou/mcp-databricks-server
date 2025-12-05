@@ -504,7 +504,11 @@ class TestFormatHelpers:
 
     def test_format_run_state_md_with_all_fields(self):
         """Test formatting run state with all fields."""
-        from databricks.sdk.service.jobs import RunState, RunLifeCycleState, RunResultState
+        from databricks.sdk.service.jobs import (
+            RunState,
+            RunLifeCycleState,
+            RunResultState,
+        )
 
         state = Mock(spec=RunState)
         state.life_cycle_state = RunLifeCycleState.TERMINATED

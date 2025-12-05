@@ -7,9 +7,11 @@ from .databricks_formatter import format_query_results
 from .databricks_sdk_utils import (
     DatabricksConfigError,
     execute_databricks_sql,
+    export_task_run,
     get_job,
     get_job_run,
     get_job_run_output,
+    get_table_history,
     get_uc_all_catalogs_summary,
     get_uc_catalog_details,
     get_uc_schema_details,
@@ -129,6 +131,38 @@ async def describe_uc_table(full_table_name: str, include_lineage: bool = False)
         include_lineage=include_lineage,
     )
     return details_markdown
+
+
+@mcp.tool()
+@handle_tool_errors("get_uc_table_history")
+async def get_uc_table_history(
+    full_table_name: str,
+    limit: int = 10,
+    start_timestamp: str | None = None,
+    end_timestamp: str | None = None,
+) -> str:
+    """
+    Retrieves the version history of a Delta table.
+
+    Use this tool to understand recent changes to a table, including what operations
+    were performed, when, and by whom. Useful for auditing and debugging data issues.
+
+    The output is formatted in Markdown.
+
+    Args:
+        full_table_name: The fully qualified three-part name of the table (e.g., `catalog.schema.table`).
+        limit: Maximum number of history records to return. Default is 10.
+        start_timestamp: Optional. Filter to show only history after this timestamp (ISO format, e.g., '2024-01-01' or '2024-01-01T00:00:00').
+        end_timestamp: Optional. Filter to show only history before this timestamp (ISO format).
+    """
+    history_markdown = await asyncio.to_thread(
+        get_table_history,
+        table_full_name=full_table_name,
+        limit=limit,
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
+    )
+    return history_markdown
 
 
 @mcp.tool()
@@ -327,6 +361,38 @@ async def list_databricks_job_runs(
         start_time_from=start_time_from,
         start_time_to=start_time_to,
         max_results=limit,
+    )
+
+
+@mcp.tool()
+@handle_tool_errors("export_databricks_task_run")
+async def export_databricks_task_run(
+    run_id: int,
+    include_dashboards: bool = False,
+) -> str:
+    """
+    Exports a task run as HTML, including notebook code and rendered outputs.
+
+    Use this tool to get the full notebook content (code cells and their outputs) from
+    a completed task run. This is useful for:
+    - Viewing the actual code that was executed
+    - Seeing the output/results of each cell
+    - Debugging failed notebook runs
+    - Auditing what a job actually did
+
+    **Important**: For multi-task jobs, use the individual task's run_id (found in
+    get_databricks_job_run under "Task Runs"), not the parent job run ID.
+
+    The output is formatted in Markdown containing the HTML export.
+
+    Args:
+        run_id: The task run ID to export.
+        include_dashboards: If True, also exports any dashboards (default: False).
+    """
+    return await asyncio.to_thread(
+        export_task_run,
+        run_id=run_id,
+        include_dashboards=include_dashboards,
     )
 
 

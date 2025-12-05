@@ -8,6 +8,7 @@ from databricks_mcp.main import (
     describe_uc_table,
     describe_uc_catalog,
     describe_uc_schema,
+    get_uc_table_history,
     list_uc_catalogs,
     format_exception_md,
     get_databricks_job,
@@ -134,7 +135,8 @@ class TestDescribeUcTable:
 
             assert "test_table" in result
             mock_get_details.assert_called_once_with(
-                full_table_name="catalog.schema.table", include_lineage=False
+                full_table_name="catalog.schema.table",
+                include_lineage=False,
             )
 
     @pytest.mark.asyncio
@@ -149,7 +151,8 @@ class TestDescribeUcTable:
 
             assert "test_table" in result
             mock_get_details.assert_called_once_with(
-                full_table_name="catalog.schema.table", include_lineage=True
+                full_table_name="catalog.schema.table",
+                include_lineage=True,
             )
 
     @pytest.mark.asyncio
@@ -173,6 +176,57 @@ class TestDescribeUcTable:
 
             assert "Unexpected error" in result
             assert "Table not found" in result
+
+
+class TestGetUcTableHistory:
+    """Test cases for get_uc_table_history tool."""
+
+    @pytest.mark.asyncio
+    async def test_get_history_default_params(self, setup_env_vars):
+        """Test getting table history with default parameters."""
+        with patch("databricks_mcp.main.get_table_history") as mock_get_history:
+            mock_get_history.return_value = "# Table History\n| Version | Timestamp |"
+
+            result = await get_uc_table_history("catalog.schema.table")
+
+            assert "Table History" in result
+            mock_get_history.assert_called_once_with(
+                table_full_name="catalog.schema.table",
+                limit=10,
+                start_timestamp=None,
+                end_timestamp=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_history_with_filters(self, setup_env_vars):
+        """Test getting table history with date filters."""
+        with patch("databricks_mcp.main.get_table_history") as mock_get_history:
+            mock_get_history.return_value = "# Table History\n| Version | Timestamp |"
+
+            result = await get_uc_table_history(
+                "catalog.schema.table",
+                limit=5,
+                start_timestamp="2024-01-01",
+                end_timestamp="2024-12-31",
+            )
+
+            assert "Table History" in result
+            mock_get_history.assert_called_once_with(
+                table_full_name="catalog.schema.table",
+                limit=5,
+                start_timestamp="2024-01-01",
+                end_timestamp="2024-12-31",
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_history_config_error(self, setup_env_vars):
+        """Test getting history with config error."""
+        with patch("databricks_mcp.main.get_table_history") as mock_get_history:
+            mock_get_history.side_effect = DatabricksConfigError("Missing credentials")
+
+            result = await get_uc_table_history("catalog.schema.table")
+
+            assert "Databricks not configured" in result
 
 
 class TestDescribeUcCatalog:
@@ -620,9 +674,15 @@ class TestJobToolsIntegration:
             patch("databricks_mcp.main.get_job_run") as mock_get_run,
         ):
             mock_list_jobs.return_value = "# Jobs\n## `ETL Job` (ID: 12345)"
-            mock_get_job.return_value = "# Job: **ETL Job**\n## Tasks\n### Task: `task1`"
-            mock_list_runs.return_value = "# Job Runs\n## Run 54321\n- **Status**: TERMINATED"
-            mock_get_run.return_value = "# Run: **Run 54321**\n## State\n**Status**: SUCCESS"
+            mock_get_job.return_value = (
+                "# Job: **ETL Job**\n## Tasks\n### Task: `task1`"
+            )
+            mock_list_runs.return_value = (
+                "# Job Runs\n## Run 54321\n- **Status**: TERMINATED"
+            )
+            mock_get_run.return_value = (
+                "# Run: **Run 54321**\n## State\n**Status**: SUCCESS"
+            )
 
             # List jobs
             jobs = await list_databricks_jobs()
