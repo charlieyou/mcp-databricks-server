@@ -197,21 +197,30 @@ def setup_env_vars(monkeypatch):
     # Reload workspace configs after setting env vars
     from databricks_mcp import databricks_sdk_utils
     databricks_sdk_utils.reload_workspace_configs()
-    # Also update the module-level globals for backward compatibility
-    databricks_sdk_utils.DATABRICKS_SQL_WAREHOUSE_ID = "test_warehouse_id"
+
+
+@pytest.fixture
+def setup_two_workspaces(monkeypatch):
+    """Set up two workspaces (default and dev) for multi-workspace tests."""
+    monkeypatch.setenv("DATABRICKS_HOST", "https://default.databricks.com")
+    monkeypatch.setenv("DATABRICKS_TOKEN", "default_token")
+    monkeypatch.setenv("DATABRICKS_SQL_WAREHOUSE_ID", "default_warehouse")
+    monkeypatch.setenv("DATABRICKS_DEV_HOST", "https://dev.databricks.com")
+    monkeypatch.setenv("DATABRICKS_DEV_TOKEN", "dev_token")
+    monkeypatch.setenv("DATABRICKS_DEV_SQL_WAREHOUSE_ID", "dev_warehouse")
+    from databricks_mcp import databricks_sdk_utils
+    databricks_sdk_utils.reload_workspace_configs()
 
 
 @pytest.fixture(autouse=True)
 def reset_sdk_client():
-    """Reset the global SDK client between tests."""
+    """Reset the workspace clients between tests."""
     from databricks_mcp import databricks_sdk_utils
 
-    databricks_sdk_utils._sdk_client = None
     databricks_sdk_utils._workspace_clients = {}
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}
     yield
-    databricks_sdk_utils._sdk_client = None
     databricks_sdk_utils._workspace_clients = {}
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}
