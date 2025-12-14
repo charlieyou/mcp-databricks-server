@@ -407,7 +407,7 @@ def get_table_history(
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
     history_sql_query = f"""
-    SELECT version, timestamp, operation, userName, operationParameters, operationMetrics
+    SELECT version, timestamp, operation, userName, job, operationParameters, operationMetrics
     FROM (DESCRIBE HISTORY {quoted_table_name})
     {where_sql}
     ORDER BY version DESC
@@ -456,16 +456,22 @@ def get_table_history(
     markdown_parts.append(f"**Showing**: {len(data)} records (limit: {limit})")
     markdown_parts.append("")
 
-    markdown_parts.append("| Version | Timestamp | Operation | User |")
-    markdown_parts.append("|---------|-----------|-----------|------|")
+    markdown_parts.append("| Version | Timestamp | Operation | User | Job | Parameters | Metrics |")
+    markdown_parts.append("|---------|-----------|-----------|------|-----|------------|---------|")
 
     for row in data:
         version = row.get("version", "N/A")
         timestamp = row.get("timestamp", "N/A")
         operation = row.get("operation", "N/A")
         user_name = row.get("userName", "N/A")
+        job = row.get("job", "")
+        op_params = row.get("operationParameters", "")
+        op_metrics = row.get("operationMetrics", "")
+        job_str = str(job).replace("|", "\\|") if job else "-"
+        op_params_str = str(op_params).replace("|", "\\|") if op_params else "-"
+        op_metrics_str = str(op_metrics).replace("|", "\\|") if op_metrics else "-"
         markdown_parts.append(
-            f"| {version} | {timestamp} | {operation} | {user_name} |"
+            f"| {version} | {timestamp} | {operation} | {user_name} | {job_str} | {op_params_str} | {op_metrics_str} |"
         )
 
     return "\n".join(markdown_parts)

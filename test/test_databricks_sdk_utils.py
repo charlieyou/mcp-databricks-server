@@ -19,6 +19,7 @@ from databricks_mcp.databricks_sdk_utils import (
     get_job_run,
     get_job_run_output,
     get_sdk_client,
+    get_table_history,
     get_uc_all_catalogs_summary,
     get_uc_catalog_details,
     get_uc_schema_details,
@@ -862,3 +863,60 @@ class TestListJobRuns:
 
             assert "Error" in result
             assert "API error" in result
+
+
+class TestGetTableHistory:
+    """Test cases for get_table_history function."""
+
+    def test_history_includes_all_columns(self, setup_env_vars):
+        """Test that history markdown includes Job, Parameters and Metrics columns."""
+        mock_result = {
+            "status": "success",
+            "data": [
+                {
+                    "version": 1,
+                    "timestamp": "2024-01-01T00:00:00",
+                    "operation": "WRITE",
+                    "userName": "user@example.com",
+                    "job": {"jobId": "123", "runId": "456"},
+                    "operationParameters": {"mode": "Append"},
+                    "operationMetrics": {"numFiles": "10", "numRows": "1000"},
+                },
+            ],
+        }
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.execute_databricks_sql"
+        ) as mock_sql:
+            mock_sql.return_value = mock_result
+
+            result = get_table_history("catalog.schema.table")
+
+            assert "| Version | Timestamp | Operation | User | Job | Parameters | Metrics |" in result
+            assert "{'jobId': '123', 'runId': '456'}" in result
+            assert "{'mode': 'Append'}" in result
+            assert "{'numFiles': '10', 'numRows': '1000'}" in result
+
+    def test_history_handles_empty_params_and_metrics(self, setup_env_vars):
+        """Test that history shows dash for empty job/params/metrics."""
+        mock_result = {
+            "status": "success",
+            "data": [
+                {
+                    "version": 1,
+                    "timestamp": "2024-01-01T00:00:00",
+                    "operation": "WRITE",
+                    "userName": "user@example.com",
+                    "job": None,
+                    "operationParameters": None,
+                    "operationMetrics": None,
+                },
+            ],
+        }
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.execute_databricks_sql"
+        ) as mock_sql:
+            mock_sql.return_value = mock_result
+
+            result = get_table_history("catalog.schema.table")
+
+            assert "| 1 | 2024-01-01T00:00:00 | WRITE | user@example.com | - | - | - |" in result
