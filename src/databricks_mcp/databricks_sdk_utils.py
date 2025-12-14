@@ -269,17 +269,24 @@ def _format_column_details_md(columns: List[ColumnInfo]) -> List[str]:
 
 
 def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
-    """Get job information with caching to avoid redundant API calls"""
+    """Get job information with caching to avoid redundant API calls.
+    
+    Uses double-checked locking to prevent overwriting existing cache entries.
+    """
     workspace_name = _resolve_workspace_name(workspace)
     cache_key = (workspace_name, job_id)
-    with _job_cache_lock:
-        if cache_key in _job_cache:
-            return _job_cache[cache_key]
     
+    # First check under lock
+    with _job_cache_lock:
+        existing = _job_cache.get(cache_key)
+        if existing is not None:
+            return existing
+    
+    # Fetch outside lock
     try:
         client = get_sdk_client(workspace_name)
         job_info = client.jobs.get(job_id=job_id)
-        result = {
+        result: Dict[str, Any] = {
             "name": job_info.settings.name
             if job_info.settings.name
             else f"Job {job_id}",
@@ -299,30 +306,45 @@ def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[s
         logger.error(f"Error fetching job {job_id}: {e}")
         result = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
 
+    # Second check under lock to prevent overwriting
     with _job_cache_lock:
+        existing = _job_cache.get(cache_key)
+        if existing is not None:
+            return existing
         _job_cache[cache_key] = result
-    return result
+        return result
 
 
 def _get_notebook_id_cached(notebook_path: str, workspace: Optional[str] = None) -> Optional[str]:
-    """Get notebook ID with caching to avoid redundant API calls"""
+    """Get notebook ID with caching to avoid redundant API calls.
+    
+    Uses double-checked locking to prevent overwriting existing cache entries.
+    """
     workspace_name = _resolve_workspace_name(workspace)
     cache_key = (workspace_name, notebook_path)
-    with _notebook_cache_lock:
-        if cache_key in _notebook_cache:
-            return _notebook_cache[cache_key]
     
+    # First check under lock
+    with _notebook_cache_lock:
+        existing = _notebook_cache.get(cache_key)
+        if existing is not None:
+            return existing
+    
+    # Fetch outside lock
     try:
         client = get_sdk_client(workspace_name)
         notebook_details = client.workspace.get_status(notebook_path)
-        result = str(notebook_details.object_id)
+        result: Optional[str] = str(notebook_details.object_id)
     except Exception as e:
         logger.error(f"Error fetching notebook {notebook_path}: {e}")
         result = None
 
+    # Second check under lock to prevent overwriting
     with _notebook_cache_lock:
+        existing = _notebook_cache.get(cache_key)
+        if existing is not None:
+            return existing
         _notebook_cache[cache_key] = result
-    return result
+        return result
 
 
 def _resolve_notebook_info_optimized(notebook_id: str, job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
