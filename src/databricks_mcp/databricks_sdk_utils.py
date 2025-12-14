@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -119,7 +120,8 @@ def reload_workspace_configs() -> None:
     """
     global _workspace_configs, _workspace_clients
     _workspace_configs = _load_workspace_configs_from_env()
-    _workspace_clients = {}
+    with _workspace_clients_lock:
+        _workspace_clients = {}
 
 
 def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
@@ -172,6 +174,7 @@ DATABRICKS_SQL_WAREHOUSE_ID = os.environ.get("DATABRICKS_SQL_WAREHOUSE_ID")
 
 _sdk_client: Optional[WorkspaceClient] = None
 _workspace_clients: Dict[str, WorkspaceClient] = {}
+_workspace_clients_lock = threading.Lock()
 
 
 def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
@@ -183,17 +186,18 @@ def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
     """
     resolved_name = _resolve_workspace_name(workspace)
     
-    if resolved_name not in _workspace_clients:
-        config = _workspace_configs[resolved_name]
-        sdk_config = Config(
-            host=config.host,
-            token=config.token,
-            http_timeout_seconds=30,
-            retry_timeout_seconds=60,
-        )
-        _workspace_clients[resolved_name] = WorkspaceClient(config=sdk_config)
-    
-    return _workspace_clients[resolved_name]
+    with _workspace_clients_lock:
+        if resolved_name not in _workspace_clients:
+            config = _workspace_configs[resolved_name]
+            sdk_config = Config(
+                host=config.host,
+                token=config.token,
+                http_timeout_seconds=30,
+                retry_timeout_seconds=60,
+            )
+            _workspace_clients[resolved_name] = WorkspaceClient(config=sdk_config)
+        
+        return _workspace_clients[resolved_name]
 
 
 def get_sql_warehouse_id(workspace: Optional[str] = None) -> Optional[str]:
@@ -217,8 +221,11 @@ def get_sdk_client() -> WorkspaceClient:
 
 
 # Cache for job information to avoid redundant API calls
-_job_cache = {}
-_notebook_cache = {}
+# Keys are (workspace_name, id) tuples to support per-workspace caching
+_job_cache: Dict[tuple[str, str], Dict[str, Any]] = {}
+_job_cache_lock = threading.Lock()
+_notebook_cache: Dict[tuple[str, str], Optional[str]] = {}
+_notebook_cache_lock = threading.Lock()
 
 
 def _format_column_details_md(columns: List[ColumnInfo]) -> List[str]:
@@ -251,46 +258,55 @@ def _format_column_details_md(columns: List[ColumnInfo]) -> List[str]:
 
 def _get_job_info_cached(job_id: str) -> Dict[str, Any]:
     """Get job information with caching to avoid redundant API calls"""
-    if job_id not in _job_cache:
-        try:
-            client = get_sdk_client()
-            job_info = client.jobs.get(job_id=job_id)
-            _job_cache[job_id] = {
-                "name": job_info.settings.name
-                if job_info.settings.name
-                else f"Job {job_id}",
-                "tasks": [],
-            }
+    with _job_cache_lock:
+        if job_id in _job_cache:
+            return _job_cache[job_id]
+    
+    try:
+        client = get_sdk_client()
+        job_info = client.jobs.get(job_id=job_id)
+        result = {
+            "name": job_info.settings.name
+            if job_info.settings.name
+            else f"Job {job_id}",
+            "tasks": [],
+        }
 
-            # Pre-process all tasks to build notebook mapping
-            if job_info.settings.tasks:
-                for task in job_info.settings.tasks:
-                    if hasattr(task, "notebook_task") and task.notebook_task:
-                        task_info = {
-                            "task_key": task.task_key,
-                            "notebook_path": task.notebook_task.notebook_path,
-                        }
-                        _job_cache[job_id]["tasks"].append(task_info)
+        if job_info.settings.tasks:
+            for task in job_info.settings.tasks:
+                if hasattr(task, "notebook_task") and task.notebook_task:
+                    task_info = {
+                        "task_key": task.task_key,
+                        "notebook_path": task.notebook_task.notebook_path,
+                    }
+                    result["tasks"].append(task_info)
 
-        except Exception as e:
-            logger.error(f"Error fetching job {job_id}: {e}")
-            _job_cache[job_id] = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
+    except Exception as e:
+        logger.error(f"Error fetching job {job_id}: {e}")
+        result = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
 
-    return _job_cache[job_id]
+    with _job_cache_lock:
+        _job_cache[job_id] = result
+    return result
 
 
-def _get_notebook_id_cached(notebook_path: str) -> str:
+def _get_notebook_id_cached(notebook_path: str) -> Optional[str]:
     """Get notebook ID with caching to avoid redundant API calls"""
-    if notebook_path not in _notebook_cache:
-        try:
-            client = get_sdk_client()
-            notebook_details = client.workspace.get_status(notebook_path)
-            _notebook_cache[notebook_path] = str(notebook_details.object_id)
-        except Exception as e:
-            logger.error(f"Error fetching notebook {notebook_path}: {e}")
-            _notebook_cache[notebook_path] = None
+    with _notebook_cache_lock:
+        if notebook_path in _notebook_cache:
+            return _notebook_cache[notebook_path]
+    
+    try:
+        client = get_sdk_client()
+        notebook_details = client.workspace.get_status(notebook_path)
+        result = str(notebook_details.object_id)
+    except Exception as e:
+        logger.error(f"Error fetching notebook {notebook_path}: {e}")
+        result = None
 
-    return _notebook_cache[notebook_path]
+    with _notebook_cache_lock:
+        _notebook_cache[notebook_path] = result
+    return result
 
 
 def _resolve_notebook_info_optimized(notebook_id: str, job_id: str) -> Dict[str, Any]:
@@ -469,8 +485,10 @@ def _process_lineage_results(
 def clear_lineage_cache():
     """Clear the job and notebook caches to free memory"""
     global _job_cache, _notebook_cache
-    _job_cache = {}
-    _notebook_cache = {}
+    with _job_cache_lock:
+        _job_cache = {}
+    with _notebook_cache_lock:
+        _notebook_cache = {}
     logger.info("Cleared lineage caches")
 
 

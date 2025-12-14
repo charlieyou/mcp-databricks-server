@@ -565,9 +565,9 @@ class TestLineageCache:
 
     def test_clear_lineage_cache(self):
         """Test clearing lineage cache."""
-        # Add some data to cache
-        databricks_sdk_utils._job_cache["test"] = {"name": "Test"}
-        databricks_sdk_utils._notebook_cache["test"] = "123"
+        # Add some data to cache using tuple keys (workspace_name, id)
+        databricks_sdk_utils._job_cache[("default", "test")] = {"name": "Test"}
+        databricks_sdk_utils._notebook_cache[("default", "test")] = "123"
 
         clear_lineage_cache()
 
