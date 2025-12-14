@@ -2,6 +2,7 @@ import asyncio
 import functools
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
 from .databricks_formatter import format_query_results
 from .databricks_sdk_utils import (
@@ -37,16 +38,12 @@ def handle_tool_errors(tool_name):
         async def wrapper(*args, **kwargs):
             try:
                 return await fn(*args, **kwargs)
+            except ToolError:
+                raise
             except DatabricksConfigError as e:
-                return format_exception_md(
-                    f"{tool_name}: Databricks not configured",
-                    str(e),
-                )
+                raise ToolError(f"{tool_name}: Databricks not configured - {e}") from e
             except Exception as e:
-                return format_exception_md(
-                    f"{tool_name}: Unexpected error",
-                    str(e),
-                )
+                raise ToolError(f"{tool_name}: Unexpected error - {e}") from e
 
         return wrapper
 
@@ -74,16 +71,15 @@ async def execute_sql_query(sql: str) -> str:
     if status == "failed":
         error_message = sdk_result.get("error", "Unknown query execution error.")
         details = sdk_result.get("details", "No additional details provided.")
-        return f"SQL Query Failed: {error_message}\nDetails: {details}"
+        raise ToolError(f"SQL Query Failed: {error_message}\nDetails: {details}")
     elif status == "error":
         error_message = sdk_result.get("error", "Unknown error during SQL execution.")
         details = sdk_result.get("details", "No additional details provided.")
-        return f"Error during SQL Execution: {error_message}\nDetails: {details}"
+        raise ToolError(f"Error during SQL Execution: {error_message}\nDetails: {details}")
     elif status == "success":
         return format_query_results(sdk_result)
     else:
-        # Should not happen if execute_databricks_sql always returns a known status
-        return f"Received an unexpected status from query execution: {status}. Result: {sdk_result}"
+        raise ToolError(f"Received an unexpected status from query execution: {status}. Result: {sdk_result}")
 
 
 @mcp.tool()

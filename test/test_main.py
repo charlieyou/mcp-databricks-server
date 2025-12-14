@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import patch
 import asyncio
+from mcp.server.fastmcp.exceptions import ToolError
 from databricks_mcp.main import (
     execute_sql_query,
     describe_uc_table,
@@ -67,11 +68,12 @@ class TestExecuteSqlQuery:
                 "details": "Invalid SQL syntax",
             }
 
-            result = await execute_sql_query("INVALID SQL")
+            with pytest.raises(ToolError) as exc_info:
+                await execute_sql_query("INVALID SQL")
 
-            assert "SQL Query Failed" in result
-            assert "Syntax error" in result
-            assert "Invalid SQL syntax" in result
+            assert "SQL Query Failed" in str(exc_info.value)
+            assert "Syntax error" in str(exc_info.value)
+            assert "Invalid SQL syntax" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_execute_sql_error(self, setup_env_vars):
@@ -83,10 +85,11 @@ class TestExecuteSqlQuery:
                 "details": "Network timeout",
             }
 
-            result = await execute_sql_query("SELECT 1")
+            with pytest.raises(ToolError) as exc_info:
+                await execute_sql_query("SELECT 1")
 
-            assert "Error during SQL Execution" in result
-            assert "Connection failed" in result
+            assert "Error during SQL Execution" in str(exc_info.value)
+            assert "Connection failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_execute_sql_unexpected_status(self, setup_env_vars):
@@ -94,9 +97,10 @@ class TestExecuteSqlQuery:
         with patch("databricks_mcp.main.execute_databricks_sql") as mock_execute:
             mock_execute.return_value = {"status": "unknown"}
 
-            result = await execute_sql_query("SELECT 1")
+            with pytest.raises(ToolError) as exc_info:
+                await execute_sql_query("SELECT 1")
 
-            assert "unexpected status" in result
+            assert "unexpected status" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_execute_sql_config_error(self, setup_env_vars):
@@ -104,10 +108,11 @@ class TestExecuteSqlQuery:
         with patch("databricks_mcp.main.execute_databricks_sql") as mock_execute:
             mock_execute.side_effect = DatabricksConfigError("Config missing")
 
-            result = await execute_sql_query("SELECT 1")
+            with pytest.raises(ToolError) as exc_info:
+                await execute_sql_query("SELECT 1")
 
-            assert "Databricks not configured" in result
-            assert "Config missing" in result
+            assert "Databricks not configured" in str(exc_info.value)
+            assert "Config missing" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_execute_sql_unexpected_exception(self, setup_env_vars):
@@ -115,9 +120,10 @@ class TestExecuteSqlQuery:
         with patch("databricks_mcp.main.execute_databricks_sql") as mock_execute:
             mock_execute.side_effect = Exception("Unexpected error")
 
-            result = await execute_sql_query("SELECT 1")
+            with pytest.raises(ToolError) as exc_info:
+                await execute_sql_query("SELECT 1")
 
-            assert "Unexpected error" in result
+            assert "Unexpected error" in str(exc_info.value)
 
 
 class TestDescribeUcTable:
@@ -161,10 +167,11 @@ class TestDescribeUcTable:
         with patch("databricks_mcp.main.get_uc_table_details") as mock_get_details:
             mock_get_details.side_effect = DatabricksConfigError("Missing credentials")
 
-            result = await describe_uc_table("catalog.schema.table")
+            with pytest.raises(ToolError) as exc_info:
+                await describe_uc_table("catalog.schema.table")
 
-            assert "Databricks not configured" in result
-            assert "Missing credentials" in result
+            assert "Databricks not configured" in str(exc_info.value)
+            assert "Missing credentials" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_describe_table_unexpected_error(self, setup_env_vars):
@@ -172,10 +179,11 @@ class TestDescribeUcTable:
         with patch("databricks_mcp.main.get_uc_table_details") as mock_get_details:
             mock_get_details.side_effect = Exception("Table not found")
 
-            result = await describe_uc_table("catalog.schema.table")
+            with pytest.raises(ToolError) as exc_info:
+                await describe_uc_table("catalog.schema.table")
 
-            assert "Unexpected error" in result
-            assert "Table not found" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "Table not found" in str(exc_info.value)
 
 
 class TestGetUcTableHistory:
@@ -224,9 +232,10 @@ class TestGetUcTableHistory:
         with patch("databricks_mcp.main.get_table_history") as mock_get_history:
             mock_get_history.side_effect = DatabricksConfigError("Missing credentials")
 
-            result = await get_uc_table_history("catalog.schema.table")
+            with pytest.raises(ToolError) as exc_info:
+                await get_uc_table_history("catalog.schema.table")
 
-            assert "Databricks not configured" in result
+            assert "Databricks not configured" in str(exc_info.value)
 
 
 class TestDescribeUcCatalog:
@@ -249,10 +258,11 @@ class TestDescribeUcCatalog:
         with patch("databricks_mcp.main.get_uc_catalog_details") as mock_get_details:
             mock_get_details.side_effect = Exception("Catalog not accessible")
 
-            result = await describe_uc_catalog("invalid_catalog")
+            with pytest.raises(ToolError) as exc_info:
+                await describe_uc_catalog("invalid_catalog")
 
-            assert "Unexpected error" in result
-            assert "Catalog not accessible" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "Catalog not accessible" in str(exc_info.value)
 
 
 class TestDescribeUcSchema:
@@ -293,9 +303,10 @@ class TestDescribeUcSchema:
         with patch("databricks_mcp.main.get_uc_schema_details") as mock_get_details:
             mock_get_details.side_effect = Exception("Schema error")
 
-            result = await describe_uc_schema("catalog", "invalid")
+            with pytest.raises(ToolError) as exc_info:
+                await describe_uc_schema("catalog", "invalid")
 
-            assert "Unexpected error" in result
+            assert "Unexpected error" in str(exc_info.value)
 
 
 class TestListUcCatalogs:
@@ -335,10 +346,11 @@ class TestListUcCatalogs:
         ) as mock_get_summary:
             mock_get_summary.side_effect = DatabricksConfigError("Auth failed")
 
-            result = await list_uc_catalogs()
+            with pytest.raises(ToolError) as exc_info:
+                await list_uc_catalogs()
 
-            assert "Databricks not configured" in result
-            assert "Auth failed" in result
+            assert "Databricks not configured" in str(exc_info.value)
+            assert "Auth failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_list_catalogs_unexpected_error(self, setup_env_vars):
@@ -348,10 +360,11 @@ class TestListUcCatalogs:
         ) as mock_get_summary:
             mock_get_summary.side_effect = Exception("Connection timeout")
 
-            result = await list_uc_catalogs()
+            with pytest.raises(ToolError) as exc_info:
+                await list_uc_catalogs()
 
-            assert "Unexpected error" in result
-            assert "Connection timeout" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "Connection timeout" in str(exc_info.value)
 
 
 class TestIntegration:
@@ -434,10 +447,11 @@ class TestGetDatabricksJob:
         with patch("databricks_mcp.main.get_job") as mock_get_job:
             mock_get_job.side_effect = DatabricksConfigError("Token missing")
 
-            result = await get_databricks_job(12345)
+            with pytest.raises(ToolError) as exc_info:
+                await get_databricks_job(12345)
 
-            assert "Databricks not configured" in result
-            assert "Token missing" in result
+            assert "Databricks not configured" in str(exc_info.value)
+            assert "Token missing" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_get_job_unexpected_error(self, setup_env_vars):
@@ -445,10 +459,11 @@ class TestGetDatabricksJob:
         with patch("databricks_mcp.main.get_job") as mock_get_job:
             mock_get_job.side_effect = Exception("API timeout")
 
-            result = await get_databricks_job(12345)
+            with pytest.raises(ToolError) as exc_info:
+                await get_databricks_job(12345)
 
-            assert "Unexpected error" in result
-            assert "API timeout" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "API timeout" in str(exc_info.value)
 
 
 class TestListDatabricksJobs:
@@ -493,10 +508,11 @@ class TestListDatabricksJobs:
         with patch("databricks_mcp.main.list_jobs") as mock_list:
             mock_list.side_effect = Exception("Connection refused")
 
-            result = await list_databricks_jobs()
+            with pytest.raises(ToolError) as exc_info:
+                await list_databricks_jobs()
 
-            assert "Unexpected error" in result
-            assert "Connection refused" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "Connection refused" in str(exc_info.value)
 
 
 class TestGetDatabricksJobRun:
@@ -522,9 +538,10 @@ class TestGetDatabricksJobRun:
         with patch("databricks_mcp.main.get_job_run") as mock_get_run:
             mock_get_run.side_effect = DatabricksConfigError("Auth expired")
 
-            result = await get_databricks_job_run(54321)
+            with pytest.raises(ToolError) as exc_info:
+                await get_databricks_job_run(54321)
 
-            assert "Databricks not configured" in result
+            assert "Databricks not configured" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_get_run_unexpected_error(self, setup_env_vars):
@@ -532,10 +549,11 @@ class TestGetDatabricksJobRun:
         with patch("databricks_mcp.main.get_job_run") as mock_get_run:
             mock_get_run.side_effect = Exception("Run not found")
 
-            result = await get_databricks_job_run(99999)
+            with pytest.raises(ToolError) as exc_info:
+                await get_databricks_job_run(99999)
 
-            assert "Unexpected error" in result
-            assert "Run not found" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "Run not found" in str(exc_info.value)
 
 
 class TestGetDatabricksJobRunOutput:
@@ -571,10 +589,11 @@ class TestGetDatabricksJobRunOutput:
         with patch("databricks_mcp.main.get_job_run_output") as mock_get_output:
             mock_get_output.side_effect = Exception("Output unavailable")
 
-            result = await get_databricks_job_run_output(54321)
+            with pytest.raises(ToolError) as exc_info:
+                await get_databricks_job_run_output(54321)
 
-            assert "Unexpected error" in result
-            assert "Output unavailable" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "Output unavailable" in str(exc_info.value)
 
 
 class TestListDatabricksJobRuns:
@@ -655,10 +674,11 @@ class TestListDatabricksJobRuns:
         with patch("databricks_mcp.main.list_job_runs") as mock_list:
             mock_list.side_effect = Exception("Database error")
 
-            result = await list_databricks_job_runs()
+            with pytest.raises(ToolError) as exc_info:
+                await list_databricks_job_runs()
 
-            assert "Unexpected error" in result
-            assert "Database error" in result
+            assert "Unexpected error" in str(exc_info.value)
+            assert "Database error" in str(exc_info.value)
 
 
 class TestJobToolsIntegration:
