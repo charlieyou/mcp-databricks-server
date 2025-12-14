@@ -13,6 +13,7 @@ from databricks_mcp.databricks_sdk_utils import (
     _format_run_state_md,
     _format_timestamp,
     _process_lineage_results,
+    _resolve_workspace_name,
     clear_lineage_cache,
     execute_databricks_sql,
     get_job,
@@ -80,6 +81,58 @@ class TestGetSdkClient:
             get_sdk_client()
 
         assert "No Databricks workspaces configured" in str(exc_info.value)
+
+
+class TestResolveWorkspaceName:
+    """Test cases for _resolve_workspace_name function."""
+
+    def test_resolve_workspace_name_lowercase_normalization(self, monkeypatch):
+        """Test that workspace names are normalized to lowercase."""
+        monkeypatch.setenv("DATABRICKS_PROD_HOST", "https://prod.databricks.com")
+        monkeypatch.setenv("DATABRICKS_PROD_TOKEN", "token")
+        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        databricks_sdk_utils.reload_workspace_configs()
+
+        assert _resolve_workspace_name("PROD") == "prod"
+        assert _resolve_workspace_name("Prod") == "prod"
+        assert _resolve_workspace_name("prod") == "prod"
+
+    def test_resolve_workspace_name_strips_whitespace(self, monkeypatch):
+        """Test that workspace names have whitespace stripped."""
+        monkeypatch.setenv("DATABRICKS_DEV_HOST", "https://dev.databricks.com")
+        monkeypatch.setenv("DATABRICKS_DEV_TOKEN", "token")
+        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        databricks_sdk_utils.reload_workspace_configs()
+
+        assert _resolve_workspace_name("  dev  ") == "dev"
+        assert _resolve_workspace_name("dev ") == "dev"
+        assert _resolve_workspace_name(" dev") == "dev"
+
+    def test_resolve_workspace_name_not_found(self, monkeypatch):
+        """Test error when workspace not found."""
+        monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
+        monkeypatch.setenv("DATABRICKS_TOKEN", "token")
+        databricks_sdk_utils.reload_workspace_configs()
+
+        with pytest.raises(DatabricksConfigError) as exc_info:
+            _resolve_workspace_name("nonexistent")
+        assert "not found" in str(exc_info.value)
+
+    def test_resolve_workspace_name_default_fallback(self, setup_env_vars):
+        """Test fallback to default workspace."""
+        assert _resolve_workspace_name(None) == "default"
+
+    def test_resolve_workspace_name_single_workspace(self, monkeypatch):
+        """Test auto-selection when only one workspace configured."""
+        monkeypatch.setenv("DATABRICKS_STAGING_HOST", "https://staging.databricks.com")
+        monkeypatch.setenv("DATABRICKS_STAGING_TOKEN", "token")
+        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        databricks_sdk_utils.reload_workspace_configs()
+
+        assert _resolve_workspace_name(None) == "staging"
 
 
 class TestExecuteDatabricksSql:

@@ -125,7 +125,7 @@ def reload_workspace_configs() -> None:
 def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
     """
     Resolve workspace name with priority:
-    1. Explicit param if provided
+    1. Explicit param if provided (normalized to lowercase)
     2. 'default' if exists
     3. Single workspace if only one configured
     4. Error if ambiguous or none configured
@@ -139,12 +139,14 @@ def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
         )
     
     if workspace:
-        if workspace not in _workspace_configs:
+        # Normalize to lowercase to match how configs are stored
+        normalized = workspace.lower().strip()
+        if normalized not in _workspace_configs:
             available = ", ".join(sorted(_workspace_configs.keys()))
             raise DatabricksConfigError(
                 f"Workspace '{workspace}' not found. Available workspaces: {available}"
             )
-        return workspace
+        return normalized
     
     # Try 'default' first
     if "default" in _workspace_configs:
