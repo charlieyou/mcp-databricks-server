@@ -134,6 +134,33 @@ class TestResolveWorkspaceName:
 
         assert _resolve_workspace_name(None) == "staging"
 
+    def test_resolve_workspace_name_whitespace_only_falls_through(self, setup_env_vars):
+        """Test that whitespace-only workspace is treated as unspecified."""
+        assert _resolve_workspace_name("   ") == "default"
+        assert _resolve_workspace_name("") == "default"
+
+    def test_resolve_workspace_name_ambiguous_multiple_workspaces(self, monkeypatch):
+        """Test error when multiple workspaces and no default."""
+        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        monkeypatch.setenv("DATABRICKS_DEV_HOST", "https://dev.databricks.com")
+        monkeypatch.setenv("DATABRICKS_DEV_TOKEN", "token_dev")
+        monkeypatch.setenv("DATABRICKS_PROD_HOST", "https://prod.databricks.com")
+        monkeypatch.setenv("DATABRICKS_PROD_TOKEN", "token_prod")
+        databricks_sdk_utils.reload_workspace_configs()
+
+        with pytest.raises(DatabricksConfigError) as exc_info:
+            _resolve_workspace_name(None)
+
+        msg = str(exc_info.value)
+        assert "Multiple workspaces configured but none specified" in msg
+        assert "dev" in msg and "prod" in msg
+
+    def test_resolve_workspace_name_default_is_case_insensitive(self, setup_env_vars):
+        """Test that 'default' workspace is matched case-insensitively."""
+        assert _resolve_workspace_name("DEFAULT") == "default"
+        assert _resolve_workspace_name("Default") == "default"
+
 
 class TestExecuteDatabricksSql:
     """Test cases for execute_databricks_sql function."""
