@@ -249,13 +249,15 @@ def _format_column_details_md(columns: List[ColumnInfo]) -> List[str]:
     return markdown_lines
 
 
-def _get_job_info_cached(job_id: str) -> Dict[str, Any]:
+def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
     """Get job information with caching to avoid redundant API calls"""
-    if job_id not in _job_cache:
+    workspace_name = _resolve_workspace_name(workspace)
+    cache_key = (workspace_name, job_id)
+    if cache_key not in _job_cache:
         try:
-            client = get_sdk_client()
+            client = get_sdk_client(workspace_name)
             job_info = client.jobs.get(job_id=job_id)
-            _job_cache[job_id] = {
+            _job_cache[cache_key] = {
                 "name": job_info.settings.name
                 if job_info.settings.name
                 else f"Job {job_id}",
@@ -270,30 +272,32 @@ def _get_job_info_cached(job_id: str) -> Dict[str, Any]:
                             "task_key": task.task_key,
                             "notebook_path": task.notebook_task.notebook_path,
                         }
-                        _job_cache[job_id]["tasks"].append(task_info)
+                        _job_cache[cache_key]["tasks"].append(task_info)
 
         except Exception as e:
             logger.error(f"Error fetching job {job_id}: {e}")
-            _job_cache[job_id] = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
+            _job_cache[cache_key] = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
 
-    return _job_cache[job_id]
+    return _job_cache[cache_key]
 
 
-def _get_notebook_id_cached(notebook_path: str) -> str:
+def _get_notebook_id_cached(notebook_path: str, workspace: Optional[str] = None) -> str:
     """Get notebook ID with caching to avoid redundant API calls"""
-    if notebook_path not in _notebook_cache:
+    workspace_name = _resolve_workspace_name(workspace)
+    cache_key = (workspace_name, notebook_path)
+    if cache_key not in _notebook_cache:
         try:
-            client = get_sdk_client()
+            client = get_sdk_client(workspace_name)
             notebook_details = client.workspace.get_status(notebook_path)
-            _notebook_cache[notebook_path] = str(notebook_details.object_id)
+            _notebook_cache[cache_key] = str(notebook_details.object_id)
         except Exception as e:
             logger.error(f"Error fetching notebook {notebook_path}: {e}")
-            _notebook_cache[notebook_path] = None
+            _notebook_cache[cache_key] = None
 
-    return _notebook_cache[notebook_path]
+    return _notebook_cache[cache_key]
 
 
-def _resolve_notebook_info_optimized(notebook_id: str, job_id: str) -> Dict[str, Any]:
+def _resolve_notebook_info_optimized(notebook_id: str, job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
     """
     Optimized version that resolves notebook info using cached job data.
     Returns dict with notebook_path, notebook_name, job_name, and task_key.
@@ -308,13 +312,13 @@ def _resolve_notebook_info_optimized(notebook_id: str, job_id: str) -> Dict[str,
     }
 
     # Get cached job info
-    job_info = _get_job_info_cached(job_id)
+    job_info = _get_job_info_cached(job_id, workspace)
     result["job_name"] = job_info["name"]
 
     # Look for notebook in job tasks
     for task_info in job_info["tasks"]:
         notebook_path = task_info["notebook_path"]
-        cached_notebook_id = _get_notebook_id_cached(notebook_path)
+        cached_notebook_id = _get_notebook_id_cached(notebook_path, workspace)
 
         if cached_notebook_id == notebook_id:
             result["notebook_path"] = notebook_path
@@ -437,7 +441,7 @@ def _process_lineage_results(
     batch_start = time.time()
 
     for job_id in unique_job_ids:
-        _get_job_info_cached(job_id)  # This will cache the job info
+        _get_job_info_cached(job_id, workspace)  # This will cache the job info
 
     batch_time = time.time() - batch_start
     logger.info(f"Job batch loading took {batch_time:.2f} seconds")
@@ -446,7 +450,7 @@ def _process_lineage_results(
     logger.info(f"Processing {len(notebook_job_pairs)} notebook entries...")
     for pair in notebook_job_pairs:
         notebook_info = _resolve_notebook_info_optimized(
-            pair["notebook_id"], pair["job_id"]
+            pair["notebook_id"], pair["job_id"], workspace
         )
         formatted_info = _format_notebook_info_optimized(notebook_info)
 
