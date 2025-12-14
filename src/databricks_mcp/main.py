@@ -1,8 +1,13 @@
 import asyncio
 import functools
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.server import Context
 
 from .databricks_formatter import format_query_results
 from .databricks_sdk_utils import (
@@ -21,7 +26,48 @@ from .databricks_sdk_utils import (
     list_jobs,
 )
 
-mcp = FastMCP("databricks")
+
+@dataclass
+class DatabricksSessionContext:
+    """Per-MCP-session state for Databricks multi-workspace support."""
+    active_workspace: Optional[str] = field(default=None)
+
+
+@asynccontextmanager
+async def databricks_session_lifespan(server: FastMCP) -> AsyncIterator[DatabricksSessionContext]:
+    """
+    Initialize DatabricksSessionContext for the FastMCP server lifespan.
+
+    Note: FastMCP lifespan is server-global; this context is shared across
+    MCP client sessions. For true per-client workspace state, use the
+    workspaces dict keyed by client_id.
+    """
+    yield DatabricksSessionContext()
+
+
+mcp = FastMCP("databricks", lifespan=databricks_session_lifespan)
+
+
+def _get_session_workspace(
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> Optional[str]:
+    """
+    Resolve workspace from priority order:
+    1) Explicit workspace param
+    2) Session's active_workspace from lifespan context
+    3) None (let SDK decide based on default config)
+    """
+    if workspace is not None:
+        return workspace
+    if ctx is not None:
+        try:
+            lifespan_ctx = ctx.request_context.lifespan_context
+            if isinstance(lifespan_ctx, DatabricksSessionContext) and lifespan_ctx.active_workspace:
+                return lifespan_ctx.active_workspace
+        except (AttributeError, TypeError):
+            pass
+    return None
 
 
 def format_exception_md(title: str, details: str) -> str:
