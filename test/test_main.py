@@ -919,3 +919,57 @@ class TestSetDatabricksActiveWorkspace:
 
             assert "`prod`" in result
             assert session_ctx.active_workspace == "prod"
+
+    @pytest.mark.asyncio
+    async def test_set_active_workspace_no_workspaces_configured(self, setup_env_vars):
+        """Test setting workspace when no workspaces are configured."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext()
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {}
+
+            with pytest.raises(ToolError) as exc_info:
+                await set_databricks_active_workspace("prod", ctx=mock_ctx)
+
+            assert "No Databricks workspaces are configured" in str(exc_info.value)
+            assert "DATABRICKS_HOST" in str(exc_info.value)
+
+
+class TestActiveWorkspaceIntegration:
+    """Integration tests for active workspace flowing through to other tools."""
+
+    @pytest.mark.asyncio
+    async def test_execute_sql_uses_active_workspace(self, setup_env_vars):
+        """Test that active workspace flows through to execute_sql_query."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext(
+            active_workspace="prod"
+        )
+
+        with patch("databricks_mcp.main.execute_databricks_sql") as mock_execute:
+            mock_execute.return_value = {"status": "success", "row_count": 0, "data": []}
+
+            await execute_sql_query("SELECT 1", ctx=mock_ctx)
+
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["workspace"] == "prod"
+
+    @pytest.mark.asyncio
+    async def test_explicit_workspace_overrides_active(self, setup_env_vars):
+        """Test that explicit workspace param overrides active workspace."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext(
+            active_workspace="prod"
+        )
+
+        with patch("databricks_mcp.main.execute_databricks_sql") as mock_execute:
+            mock_execute.return_value = {"status": "success", "row_count": 0, "data": []}
+
+            await execute_sql_query("SELECT 1", workspace="dev", ctx=mock_ctx)
+
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["workspace"] == "dev"

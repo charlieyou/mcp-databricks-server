@@ -30,7 +30,7 @@ from .databricks_sdk_utils import (
 
 @dataclass
 class DatabricksSessionContext:
-    """Per-MCP-session state for Databricks multi-workspace support."""
+    """Server-global Databricks state shared across MCP client sessions."""
     active_workspace: Optional[str] = field(default=None)
 
 
@@ -554,10 +554,13 @@ async def get_databricks_active_workspace(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Returns the currently active Databricks workspace for this session.
+    Returns the currently active Databricks workspace for this MCP server instance.
 
     The active workspace is used as the default when no explicit workspace
     parameter is provided to other tools.
+
+    Note: The active workspace is stored in the FastMCP lifespan context and
+    is shared across all MCP client sessions connected to this server.
 
     The output is formatted in Markdown.
     """
@@ -572,7 +575,11 @@ async def get_databricks_active_workspace(
 
     if active:
         return f"# Active Workspace\n\n**Current**: `{active}`"
-    return "# Active Workspace\n\n*No active workspace set. Tools will use the default workspace.*"
+    return (
+        "# Active Workspace\n\n"
+        "*No active workspace set. Tools will fall back to the Databricks SDK's "
+        "default workspace resolution (e.g., a 'default' workspace if configured).*"
+    )
 
 
 @mcp.tool()
@@ -582,10 +589,13 @@ async def set_databricks_active_workspace(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Sets the active Databricks workspace for this session.
+    Sets the active Databricks workspace for this MCP server instance.
 
     Once set, all subsequent tool calls that don't specify an explicit workspace
     parameter will use this workspace by default.
+
+    Note: This changes the active workspace for all MCP client sessions
+    connected to this server process.
 
     Use list_databricks_workspaces to see available workspaces.
 
@@ -597,8 +607,15 @@ async def set_databricks_active_workspace(
     configs = get_workspace_configs()
     normalized = workspace.strip().lower()
 
+    if not configs:
+        raise ToolError(
+            "No Databricks workspaces are configured. "
+            "Set DATABRICKS_HOST/DATABRICKS_TOKEN or DATABRICKS_<NAME>_HOST/TOKEN "
+            "environment variables before setting an active workspace."
+        )
+
     if normalized not in configs:
-        available = ", ".join(sorted(configs.keys())) if configs else "none"
+        available = ", ".join(sorted(configs.keys()))
         raise ToolError(
             f"Workspace '{workspace}' not found. Available workspaces: {available}"
         )
