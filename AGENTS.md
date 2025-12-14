@@ -4,13 +4,27 @@
 
 **IMPORTANT**: Use **bd** for ALL issue tracking. No markdown TODOs.
 
-**Workflow:**
-1. **Check ready work**: `bd ready --json`
-2. **Claim task**: `bd update <id> --status in_progress --json`
-3. **Work**: Implement, test, document.
-   - **Found new work?**: `bd create "Title" -t bug|feature|task -p 1 --deps discovered-from:<id> --json`
-4. **Complete**: `bd close <id> --reason "Done" --json`
-5. **Sync**: `bd sync` (Exports JSONL, commits, pulls, pushes) - **Run at end of every session.**
+### Commands
+
+```bash
+bd ready --json                    # Find unblocked work
+bd create "Title" -t task -p 2 --json
+bd update <id> --status in_progress --json
+bd close <id> --reason "Done" --json
+```
+
+### Workflow
+
+1. `bd ready` → find work
+2. `bd update <id> --status in_progress` → claim
+3. Create worktree: `git worktree add ../databricks-mcp-wt/<branch-name> -b <branch-name> origin/main`
+4. Work in the worktree
+5. Use oracle to review your changes
+6. Push and create PR: `git push -u origin <branch-name> && gh pr create`
+    a. Include Amp thread URL and beads ID in description
+    b. Include how I can verify that the work is completed, a command to run to test new functionality
+7. `bd close <id>` → complete
+8. Commit `.beads/issues.jsonl` with code changes
 
 **Reference:**
 - **Types**: `bug`, `feature`, `task`, `epic`, `chore`
