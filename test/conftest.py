@@ -189,22 +189,47 @@ def mock_databricks_client():
 
 
 @pytest.fixture
-def setup_env_vars(monkeypatch):
-    """Set up required environment variables for tests."""
-    monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
-    monkeypatch.setenv("DATABRICKS_TOKEN", "test_token")
-    monkeypatch.setenv("DATABRICKS_SQL_WAREHOUSE_ID", "test_warehouse_id")
+def setup_env_vars(monkeypatch, tmp_path):
+    """Set up a temp .databrickscfg file with a DEFAULT profile for tests."""
+    cfg_file = tmp_path / ".databrickscfg"
+    cfg_file.write_text("""[DEFAULT]
+host = https://test.databricks.com
+token = test_token
+sql_warehouse_id = test_warehouse_id
+""")
+    monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+    from databricks_mcp import databricks_sdk_utils
+    databricks_sdk_utils.reload_workspace_configs()
+
+
+@pytest.fixture
+def setup_two_workspaces(monkeypatch, tmp_path):
+    """Set up two workspaces (default and dev) for multi-workspace tests."""
+    cfg_file = tmp_path / ".databrickscfg"
+    cfg_file.write_text("""[DEFAULT]
+host = https://default.databricks.com
+token = default_token
+sql_warehouse_id = default_warehouse
+
+[DEV]
+host = https://dev.databricks.com
+token = dev_token
+sql_warehouse_id = dev_warehouse
+""")
+    monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+    from databricks_mcp import databricks_sdk_utils
+    databricks_sdk_utils.reload_workspace_configs()
 
 
 @pytest.fixture(autouse=True)
 def reset_sdk_client():
-    """Reset the global SDK client between tests."""
+    """Reset the workspace clients between tests."""
     from databricks_mcp import databricks_sdk_utils
 
-    databricks_sdk_utils._sdk_client = None
+    databricks_sdk_utils._workspace_clients = {}
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}
     yield
-    databricks_sdk_utils._sdk_client = None
+    databricks_sdk_utils._workspace_clients = {}
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}

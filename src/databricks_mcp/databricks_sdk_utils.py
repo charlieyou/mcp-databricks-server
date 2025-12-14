@@ -1,13 +1,16 @@
+import configparser
 import itertools
 import json
 import logging
 import os
 import re
+import threading
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.core import Config
 from databricks.sdk.service.catalog import (
     CatalogInfo,
     ColumnInfo,
@@ -40,43 +43,236 @@ class DatabricksConfigError(RuntimeError):
     pass
 
 
-DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST")
-DATABRICKS_TOKEN = os.environ.get("DATABRICKS_TOKEN")
-DATABRICKS_SQL_WAREHOUSE_ID = os.environ.get("DATABRICKS_SQL_WAREHOUSE_ID")
+@dataclass(frozen=True)
+class WorkspaceConfig:
+    """Configuration for a Databricks workspace."""
+    name: str  # Internal normalized name (lowercase)
+    host: Optional[str] = None  # For display/diagnostics only
+    token: Optional[str] = None  # Optional - SDK handles auth validation
+    sql_warehouse_id: Optional[str] = None
+    profile: Optional[str] = None  # Actual profile name from .databrickscfg
 
-_sdk_client: Optional[WorkspaceClient] = None
+
+def _get_databrickscfg_path() -> Path:
+    """Get the path to .databrickscfg file, respecting DATABRICKS_CONFIG_FILE."""
+    config_file = os.environ.get("DATABRICKS_CONFIG_FILE")
+    if config_file:
+        return Path(os.path.expanduser(config_file))
+    return Path.home() / ".databrickscfg"
+
+
+def _load_workspace_configs_from_profiles() -> Dict[str, WorkspaceConfig]:
+    """
+    Load workspace configurations from ~/.databrickscfg profiles.
+    
+    Each profile section becomes a workspace with the profile name as the workspace name.
+    The DEFAULT section is mapped to 'default' workspace name.
+    
+    Uses RawConfigParser to avoid interpolation issues with tokens containing %.
+    Does not require token - lets SDK handle auth validation for different auth methods.
+    
+    Returns dict of workspace name -> WorkspaceConfig.
+    """
+    configs: Dict[str, WorkspaceConfig] = {}
+    
+    cfg_path = _get_databrickscfg_path()
+    if not cfg_path.exists():
+        logger.warning(f"Databricks config file not found: {cfg_path}")
+        return configs
+    
+    # Use RawConfigParser to avoid interpolation issues with tokens containing %
+    parser = configparser.RawConfigParser()
+    try:
+        parser.read(cfg_path)
+    except configparser.Error as e:
+        logger.error(f"Error parsing {cfg_path}: {e}")
+        return configs
+    
+    # Handle DEFAULT section specially - configparser stores it in defaults()
+    defaults = parser.defaults()
+    if defaults.get("host"):
+        configs["default"] = WorkspaceConfig(
+            name="default",
+            host=defaults.get("host"),
+            token=defaults.get("token"),
+            sql_warehouse_id=defaults.get("sql_warehouse_id"),
+            profile="DEFAULT",
+        )
+    
+    # Process named sections (inherit from DEFAULT via parser.get with raw=True)
+    for section in parser.sections():
+        # Use raw=True to get inherited values from DEFAULT without interpolation
+        items = dict(parser.items(section, raw=True))
+        host = items.get("host")
+        if not host:
+            continue  # Skip profiles without host
+        
+        # Normalize profile name to lowercase for internal use
+        workspace_name = section.lower()
+        
+        configs[workspace_name] = WorkspaceConfig(
+            name=workspace_name,
+            host=host,
+            token=items.get("token"),
+            sql_warehouse_id=items.get("sql_warehouse_id"),
+            profile=section,  # Preserve original case for SDK
+        )
+    
+    return configs
+
+
+# Load workspace configs at import time
+_workspace_configs: Dict[str, WorkspaceConfig] = _load_workspace_configs_from_profiles()
+
+
+def reload_workspace_configs() -> None:
+    """
+    Reload workspace configurations from .databrickscfg.
+    
+    Useful for testing when the config file changes after module import.
+    Also clears cached workspace clients.
+    """
+    global _workspace_configs, _workspace_clients
+    _workspace_configs = _load_workspace_configs_from_profiles()
+    with _workspace_clients_lock:
+        _workspace_clients = {}
+
+
+def get_workspace_configs() -> Dict[str, WorkspaceConfig]:
+    """
+    Returns a copy of the current workspace configurations.
+    
+    Used by MCP tools to list available workspaces.
+    """
+    return dict(_workspace_configs)
+
+
+def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
+    """
+    Resolve workspace name with priority:
+    1. Explicit param if provided (case-insensitive, whitespace ignored)
+    2. DATABRICKS_CONFIG_PROFILE env var if set and matches a workspace
+    3. 'default' if exists
+    4. Single workspace if only one configured
+    5. Error if ambiguous or none configured
+    
+    Raises DatabricksConfigError on failure.
+    """
+    if not _workspace_configs:
+        cfg_path = _get_databrickscfg_path()
+        raise DatabricksConfigError(
+            f"No Databricks profiles configured. "
+            f"Create {cfg_path} or set DATABRICKS_CONFIG_FILE."
+        )
+    
+    if workspace is not None:
+        # Normalize to lowercase to match how configs are stored
+        normalized = workspace.strip().lower()
+        if normalized:
+            if normalized not in _workspace_configs:
+                available = ", ".join(sorted(_workspace_configs.keys()))
+                raise DatabricksConfigError(
+                    f"Workspace '{workspace}' not found. Available workspaces: {available}"
+                )
+            return normalized
+        # Empty/whitespace-only treated as "not specified" - fall through
+    
+    # Check DATABRICKS_CONFIG_PROFILE env var
+    env_profile = os.environ.get("DATABRICKS_CONFIG_PROFILE")
+    if env_profile:
+        normalized_env = env_profile.strip().lower()
+        if normalized_env in _workspace_configs:
+            return normalized_env
+        else:
+            logger.warning(
+                f"DATABRICKS_CONFIG_PROFILE='{env_profile}' does not match any configured workspace. "
+                f"Available: {', '.join(sorted(_workspace_configs.keys()))}. Falling back to default resolution."
+            )
+    
+    # Try 'default' if exists
+    if "default" in _workspace_configs:
+        return "default"
+    
+    # If only one workspace, use it
+    if len(_workspace_configs) == 1:
+        return next(iter(_workspace_configs.keys()))
+    
+    # Ambiguous - multiple workspaces, no default
+    available = ", ".join(sorted(_workspace_configs.keys()))
+    raise DatabricksConfigError(
+        f"Multiple workspaces configured but none specified. "
+        f"Available workspaces: {available}"
+    )
+
+
+# Workspace client cache - per-workspace clients are lazily created
+_workspace_clients: Dict[str, WorkspaceClient] = {}
+_workspace_clients_lock = threading.Lock()
+
+
+def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
+    """
+    Get a WorkspaceClient for the specified workspace.
+    
+    Uses the profile from .databrickscfg for authentication (supports PAT, OAuth, etc.).
+    Lazily creates and caches clients per workspace name.
+    Uses _resolve_workspace_name to determine which workspace to use.
+    Uses double-checked locking to minimize lock hold time.
+    """
+    resolved_name = _resolve_workspace_name(workspace)
+    
+    # First check under lock
+    with _workspace_clients_lock:
+        existing = _workspace_clients.get(resolved_name)
+        if existing is not None:
+            return existing
+    
+    # Create client outside lock using profile-based auth
+    config = _workspace_configs[resolved_name]
+    
+    # Use the SDK's native profile support for unified auth
+    # This supports PAT, OAuth, Azure CLI, and other auth methods
+    new_client = WorkspaceClient(
+        profile=config.profile,
+        http_timeout_seconds=30,
+        retry_timeout_seconds=60,
+    )
+    
+    # Second check under lock to prevent duplicate clients
+    with _workspace_clients_lock:
+        existing = _workspace_clients.get(resolved_name)
+        if existing is not None:
+            return existing
+        _workspace_clients[resolved_name] = new_client
+        return new_client
+
+
+def get_sql_warehouse_id(workspace: Optional[str] = None) -> Optional[str]:
+    """
+    Get the SQL warehouse ID for a workspace.
+    
+    Returns None if no warehouse ID is configured for the workspace.
+    """
+    resolved_name = _resolve_workspace_name(workspace)
+    return _workspace_configs[resolved_name].sql_warehouse_id
 
 
 def get_sdk_client() -> WorkspaceClient:
     """
     Lazily initializes and returns the Databricks WorkspaceClient.
-    Raises DatabricksConfigError if configuration is missing.
+    
+    Backward compatibility alias for get_workspace_client().
+    Delegates to get_workspace_client() which uses the default workspace.
     """
-    global _sdk_client
-    if _sdk_client is not None:
-        return _sdk_client
-
-    host = os.environ.get("DATABRICKS_HOST")
-    token = os.environ.get("DATABRICKS_TOKEN")
-
-    if not host or not token:
-        raise DatabricksConfigError(
-            "DATABRICKS_HOST and DATABRICKS_TOKEN must be set in environment variables or .env file "
-            "for databricks_sdk_utils to initialize."
-        )
-
-    # Configure and initialize the global SDK client
-    # Using short timeouts as previously determined to be effective
-    sdk_config = Config(
-        host=host, token=token, http_timeout_seconds=30, retry_timeout_seconds=60
-    )
-    _sdk_client = WorkspaceClient(config=sdk_config)
-    return _sdk_client
+    return get_workspace_client()
 
 
 # Cache for job information to avoid redundant API calls
-_job_cache = {}
-_notebook_cache = {}
+# Keys are (workspace_name, id) tuples to support per-workspace caching
+_job_cache: Dict[tuple[str, str], Dict[str, Any]] = {}
+_job_cache_lock = threading.Lock()
+_notebook_cache: Dict[tuple[str, str], Optional[str]] = {}
+_notebook_cache_lock = threading.Lock()
 
 
 def _format_column_details_md(columns: List[ColumnInfo]) -> List[str]:
@@ -107,51 +303,86 @@ def _format_column_details_md(columns: List[ColumnInfo]) -> List[str]:
     return markdown_lines
 
 
-def _get_job_info_cached(job_id: str) -> Dict[str, Any]:
-    """Get job information with caching to avoid redundant API calls"""
-    if job_id not in _job_cache:
-        try:
-            client = get_sdk_client()
-            job_info = client.jobs.get(job_id=job_id)
-            _job_cache[job_id] = {
-                "name": job_info.settings.name
-                if job_info.settings.name
-                else f"Job {job_id}",
-                "tasks": [],
-            }
+def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
+    """Get job information with caching to avoid redundant API calls.
+    
+    Uses double-checked locking to prevent overwriting existing cache entries.
+    """
+    workspace_name = _resolve_workspace_name(workspace)
+    cache_key = (workspace_name, job_id)
+    
+    # First check under lock
+    with _job_cache_lock:
+        existing = _job_cache.get(cache_key)
+        if existing is not None:
+            return existing
+    
+    # Fetch outside lock
+    try:
+        client = get_sdk_client(workspace_name)
+        job_info = client.jobs.get(job_id=job_id)
+        result: Dict[str, Any] = {
+            "name": job_info.settings.name
+            if job_info.settings.name
+            else f"Job {job_id}",
+            "tasks": [],
+        }
 
-            # Pre-process all tasks to build notebook mapping
-            if job_info.settings.tasks:
-                for task in job_info.settings.tasks:
-                    if hasattr(task, "notebook_task") and task.notebook_task:
-                        task_info = {
-                            "task_key": task.task_key,
-                            "notebook_path": task.notebook_task.notebook_path,
-                        }
-                        _job_cache[job_id]["tasks"].append(task_info)
+        if job_info.settings.tasks:
+            for task in job_info.settings.tasks:
+                if hasattr(task, "notebook_task") and task.notebook_task:
+                    task_info = {
+                        "task_key": task.task_key,
+                        "notebook_path": task.notebook_task.notebook_path,
+                    }
+                    result["tasks"].append(task_info)
 
-        except Exception as e:
-            logger.error(f"Error fetching job {job_id}: {e}")
-            _job_cache[job_id] = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
+    except Exception as e:
+        logger.error(f"Error fetching job {job_id}: {e}")
+        result = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
 
-    return _job_cache[job_id]
-
-
-def _get_notebook_id_cached(notebook_path: str) -> str:
-    """Get notebook ID with caching to avoid redundant API calls"""
-    if notebook_path not in _notebook_cache:
-        try:
-            client = get_sdk_client()
-            notebook_details = client.workspace.get_status(notebook_path)
-            _notebook_cache[notebook_path] = str(notebook_details.object_id)
-        except Exception as e:
-            logger.error(f"Error fetching notebook {notebook_path}: {e}")
-            _notebook_cache[notebook_path] = None
-
-    return _notebook_cache[notebook_path]
+    # Second check under lock to prevent overwriting
+    with _job_cache_lock:
+        existing = _job_cache.get(cache_key)
+        if existing is not None:
+            return existing
+        _job_cache[cache_key] = result
+        return result
 
 
-def _resolve_notebook_info_optimized(notebook_id: str, job_id: str) -> Dict[str, Any]:
+def _get_notebook_id_cached(notebook_path: str, workspace: Optional[str] = None) -> Optional[str]:
+    """Get notebook ID with caching to avoid redundant API calls.
+    
+    Uses double-checked locking to prevent overwriting existing cache entries.
+    """
+    workspace_name = _resolve_workspace_name(workspace)
+    cache_key = (workspace_name, notebook_path)
+    
+    # First check under lock
+    with _notebook_cache_lock:
+        existing = _notebook_cache.get(cache_key)
+        if existing is not None:
+            return existing
+    
+    # Fetch outside lock
+    try:
+        client = get_sdk_client(workspace_name)
+        notebook_details = client.workspace.get_status(notebook_path)
+        result: Optional[str] = str(notebook_details.object_id)
+    except Exception as e:
+        logger.error(f"Error fetching notebook {notebook_path}: {e}")
+        result = None
+
+    # Second check under lock to prevent overwriting
+    with _notebook_cache_lock:
+        existing = _notebook_cache.get(cache_key)
+        if existing is not None:
+            return existing
+        _notebook_cache[cache_key] = result
+        return result
+
+
+def _resolve_notebook_info_optimized(notebook_id: str, job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
     """
     Optimized version that resolves notebook info using cached job data.
     Returns dict with notebook_path, notebook_name, job_name, and task_key.
@@ -166,13 +397,13 @@ def _resolve_notebook_info_optimized(notebook_id: str, job_id: str) -> Dict[str,
     }
 
     # Get cached job info
-    job_info = _get_job_info_cached(job_id)
+    job_info = _get_job_info_cached(job_id, workspace)
     result["job_name"] = job_info["name"]
 
     # Look for notebook in job tasks
     for task_info in job_info["tasks"]:
         notebook_path = task_info["notebook_path"]
-        cached_notebook_id = _get_notebook_id_cached(notebook_path)
+        cached_notebook_id = _get_notebook_id_cached(notebook_path, workspace)
 
         if cached_notebook_id == notebook_id:
             result["notebook_path"] = notebook_path
@@ -205,7 +436,9 @@ def _format_notebook_info_optimized(notebook_info: Dict[str, Any]) -> str:
 
 
 def _process_lineage_results(
-    lineage_query_output: Dict[str, Any], main_table_full_name: str
+    lineage_query_output: Dict[str, Any],
+    main_table_full_name: str,
+    workspace: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Optimized version of lineage processing that batches API calls and uses caching.
@@ -293,7 +526,7 @@ def _process_lineage_results(
     batch_start = time.time()
 
     for job_id in unique_job_ids:
-        _get_job_info_cached(job_id)  # This will cache the job info
+        _get_job_info_cached(job_id, workspace)  # This will cache the job info
 
     batch_time = time.time() - batch_start
     logger.info(f"Job batch loading took {batch_time:.2f} seconds")
@@ -302,7 +535,7 @@ def _process_lineage_results(
     logger.info(f"Processing {len(notebook_job_pairs)} notebook entries...")
     for pair in notebook_job_pairs:
         notebook_info = _resolve_notebook_info_optimized(
-            pair["notebook_id"], pair["job_id"]
+            pair["notebook_id"], pair["job_id"], workspace
         )
         formatted_info = _format_notebook_info_optimized(notebook_info)
 
@@ -325,8 +558,10 @@ def _process_lineage_results(
 def clear_lineage_cache():
     """Clear the job and notebook caches to free memory"""
     global _job_cache, _notebook_cache
-    _job_cache = {}
-    _notebook_cache = {}
+    with _job_cache_lock:
+        _job_cache = {}
+    with _notebook_cache_lock:
+        _notebook_cache = {}
     logger.info("Cleared lineage caches")
 
 
@@ -359,6 +594,7 @@ def get_table_history(
     limit: int = 10,
     start_timestamp: Optional[str] = None,
     end_timestamp: Optional[str] = None,
+    workspace: Optional[str] = None,
 ) -> str:
     """
     Retrieves Delta table history using DESCRIBE HISTORY SQL command.
@@ -369,9 +605,11 @@ def get_table_history(
         limit: Maximum number of history records to return (default 10, max 1000)
         start_timestamp: Filter history after this timestamp (ISO format)
         end_timestamp: Filter history before this timestamp (ISO format)
+        workspace: Optional workspace name. Uses default if not specified.
     """
-    if not DATABRICKS_SQL_WAREHOUSE_ID:
-        return "# Error: Table History\n\n`DATABRICKS_SQL_WAREHOUSE_ID` is not set. Cannot fetch history."
+    warehouse_id = get_sql_warehouse_id(workspace)
+    if not warehouse_id:
+        return "# Error: Table History\n\nSQL warehouse ID is not configured for this workspace. Cannot fetch history."
 
     # Validate table name to prevent SQL injection
     try:
@@ -419,6 +657,7 @@ def get_table_history(
         history_sql_query,
         wait_timeout="30s",
         parameters=parameters if parameters else None,
+        workspace=workspace,
     )
 
     markdown_parts = [f"# Table History: `{table_full_name}`", ""]
@@ -477,15 +716,16 @@ def get_table_history(
     return "\n".join(markdown_parts)
 
 
-def _get_table_lineage(table_full_name: str) -> Dict[str, Any]:
+def _get_table_lineage(table_full_name: str, workspace: Optional[str] = None) -> Dict[str, Any]:
     """
-    Retrieves table lineage information for a given table using the global SDK client
-    and global SQL warehouse ID. Now includes notebook and job information with enhanced details.
+    Retrieves table lineage information for a given table using the specified workspace.
+    Includes notebook and job information with enhanced details.
     """
-    if not DATABRICKS_SQL_WAREHOUSE_ID:  # Check before attempting query
+    warehouse_id = get_sql_warehouse_id(workspace)
+    if not warehouse_id:
         return {
             "status": "error",
-            "error": "DATABRICKS_SQL_WAREHOUSE_ID is not set. Cannot fetch lineage.",
+            "error": "SQL warehouse ID is not configured for this workspace. Cannot fetch lineage.",
         }
 
     lineage_sql_query = """
@@ -503,11 +743,10 @@ def _get_table_lineage(table_full_name: str) -> Dict[str, Any]:
         )
     ]
 
-    # execute_databricks_sql will now use the global warehouse_id
     raw_lineage_output = execute_databricks_sql(
-        lineage_sql_query, wait_timeout="50s", parameters=parameters
+        lineage_sql_query, wait_timeout="50s", parameters=parameters, workspace=workspace
     )
-    return _process_lineage_results(raw_lineage_output, table_full_name)
+    return _process_lineage_results(raw_lineage_output, table_full_name, workspace=workspace)
 
 
 def _format_single_table_md(
@@ -569,24 +808,32 @@ def execute_databricks_sql(
     sql_query: str,
     wait_timeout: str = "50s",
     parameters: Optional[List[StatementParameterListItem]] = None,
+    workspace: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Executes a SQL query on Databricks using the global SDK client and global SQL warehouse ID.
+    Executes a SQL query on Databricks using the specified workspace.
+    
+    Args:
+        sql_query: The SQL query to execute.
+        wait_timeout: Timeout for the query execution.
+        parameters: Optional list of query parameters.
+        workspace: Optional workspace name. Uses default if not specified.
     """
-    if not DATABRICKS_SQL_WAREHOUSE_ID:
+    warehouse_id = get_sql_warehouse_id(workspace)
+    if not warehouse_id:
         return {
             "status": "error",
-            "error": "DATABRICKS_SQL_WAREHOUSE_ID is not set. Cannot execute SQL query.",
+            "error": "SQL warehouse ID is not configured for this workspace. Cannot execute SQL query.",
         }
 
     try:
         logger.info(
-            f"Executing SQL on warehouse {DATABRICKS_SQL_WAREHOUSE_ID} (timeout: {wait_timeout}), length={len(sql_query)}"
+            f"Executing SQL on warehouse {warehouse_id} (timeout: {wait_timeout}), length={len(sql_query)}"
         )
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         response: StatementResponse = client.statement_execution.execute_statement(
             statement=sql_query,
-            warehouse_id=DATABRICKS_SQL_WAREHOUSE_ID,  # Use global warehouse ID
+            warehouse_id=warehouse_id,
             wait_timeout=wait_timeout,
             parameters=parameters,
         )
@@ -639,15 +886,24 @@ def execute_databricks_sql(
         }
 
 
-def get_uc_table_details(full_table_name: str, include_lineage: bool = False) -> str:
+def get_uc_table_details(
+    full_table_name: str,
+    include_lineage: bool = False,
+    workspace: Optional[str] = None,
+) -> str:
     """
     Fetches table metadata and optionally lineage, then formats it into a Markdown string.
     Uses the _format_single_table_md helper for core table structure.
+    
+    Args:
+        full_table_name: Fully qualified table name (catalog.schema.table).
+        include_lineage: Whether to include lineage information.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     logger.info(f"Fetching metadata for {full_table_name}...")
 
     try:
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         table_info: TableInfo = client.tables.get(full_name=full_table_name)
     except Exception as e:
         error_details = str(e)
@@ -665,13 +921,14 @@ def get_uc_table_details(full_table_name: str, include_lineage: bool = False) ->
 
     if include_lineage:
         markdown_parts.extend(["", "## Lineage Information"])
-        if not DATABRICKS_SQL_WAREHOUSE_ID:
+        warehouse_id = get_sql_warehouse_id(workspace)
+        if not warehouse_id:
             markdown_parts.append(
-                "- *Lineage fetching skipped: `DATABRICKS_SQL_WAREHOUSE_ID` environment variable is not set.*"
+                "- *Lineage fetching skipped: SQL warehouse ID is not configured for this workspace.*"
             )
         else:
             logger.info(f"Fetching lineage for {full_table_name}...")
-            lineage_info = _get_table_lineage(full_table_name)
+            lineage_info = _get_table_lineage(full_table_name, workspace=workspace)
 
             has_upstream = (
                 lineage_info
@@ -769,18 +1026,26 @@ def get_uc_table_details(full_table_name: str, include_lineage: bool = False) ->
 
 
 def get_uc_schema_details(
-    catalog_name: str, schema_name: str, include_columns: bool = False
+    catalog_name: str,
+    schema_name: str,
+    include_columns: bool = False,
+    workspace: Optional[str] = None,
 ) -> str:
     """
     Fetches detailed information for a specific schema, optionally including its tables and their columns.
-    Uses the global SDK client and the _format_single_table_md helper with appropriate heading levels.
+    
+    Args:
+        catalog_name: The catalog name.
+        schema_name: The schema name.
+        include_columns: Whether to include column details for tables.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     full_schema_name = f"{catalog_name}.{schema_name}"
     markdown_parts = [f"# Schema Details: **{full_schema_name}**"]
 
     try:
         logger.info(f"Fetching details for schema: {full_schema_name}...")
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         schema_info: SchemaInfo = client.schemas.get(full_name=full_schema_name)
 
         description = (
@@ -834,20 +1099,22 @@ def get_uc_schema_details(
     return "\n".join(markdown_parts)
 
 
-def get_uc_catalog_details(catalog_name: str) -> str:
+def get_uc_catalog_details(catalog_name: str, workspace: Optional[str] = None) -> str:
     """
-    Fetches and formats a summary of all schemas within a given catalog
-    using the global SDK client.
+    Fetches and formats a summary of all schemas within a given catalog.
+    
+    Args:
+        catalog_name: The catalog name.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     markdown_parts = [f"# Catalog Summary: **{catalog_name}**", ""]
     schemas_found_count = 0
 
     try:
         logger.info(
-            f"Fetching schemas for catalog: {catalog_name} using global sdk_client..."
+            f"Fetching schemas for catalog: {catalog_name}..."
         )
-        # The sdk_client is globally defined in this module
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         schemas_iterable = client.schemas.list(catalog_name=catalog_name)
 
         # Convert iterator to list to easily check if empty and get a count
@@ -907,17 +1174,19 @@ def get_uc_catalog_details(catalog_name: str) -> str:
     return "\n".join(markdown_parts)
 
 
-def get_uc_all_catalogs_summary() -> str:
+def get_uc_all_catalogs_summary(workspace: Optional[str] = None) -> str:
     """
     Fetches a summary of all available Unity Catalogs, including their names, comments, and types.
-    Uses the global SDK client.
+    
+    Args:
+        workspace: Optional workspace name. Uses default if not specified.
     """
     markdown_parts = ["# Available Unity Catalogs", ""]
     catalogs_found_count = 0
 
     try:
-        logger.info("Fetching all catalogs using global sdk_client...")
-        client = get_sdk_client()
+        logger.info("Fetching all catalogs...")
+        client = get_workspace_client(workspace)
         catalogs_iterable = client.catalogs.list()
         catalogs_list = list(catalogs_iterable)
 
@@ -1001,13 +1270,17 @@ def _format_timestamp(ts_ms: Optional[int]) -> str:
     return datetime.fromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_job(job_id: int) -> str:
+def get_job(job_id: int, workspace: Optional[str] = None) -> str:
     """
     Fetches details for a specific job by job_id.
     Returns formatted Markdown.
+    
+    Args:
+        job_id: The job ID.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     try:
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         job = client.jobs.get(job_id=job_id)
 
         markdown_parts = [
@@ -1102,13 +1375,20 @@ def list_jobs(
     name: Optional[str] = None,
     expand_tasks: bool = False,
     max_results: int = 100,
+    workspace: Optional[str] = None,
 ) -> str:
     """
     Lists jobs in the workspace.
     Returns formatted Markdown. Limited to max_results to prevent excessive output.
+    
+    Args:
+        name: Optional filter for job name.
+        expand_tasks: Whether to expand task details.
+        max_results: Maximum number of jobs to return.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     try:
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         jobs_iterator = client.jobs.list(
             name=name,
             expand_tasks=expand_tasks,
@@ -1162,13 +1442,17 @@ def list_jobs(
 ```"""
 
 
-def get_job_run(run_id: int) -> str:
+def get_job_run(run_id: int, workspace: Optional[str] = None) -> str:
     """
     Fetches details for a specific job run by run_id.
     Returns formatted Markdown.
+    
+    Args:
+        run_id: The run ID.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     try:
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         run: Run = client.jobs.get_run(run_id=run_id)
 
         run_name = run.run_name if run.run_name else f"Run {run.run_id}"
@@ -1237,13 +1521,17 @@ def get_job_run(run_id: int) -> str:
 ```"""
 
 
-def get_job_run_output(run_id: int) -> str:
+def get_job_run_output(run_id: int, workspace: Optional[str] = None) -> str:
     """
     Fetches the output of a specific job run by run_id.
     Returns formatted Markdown.
+    
+    Args:
+        run_id: The run ID.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     try:
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         output = client.jobs.get_run_output(run_id=run_id)
 
         markdown_parts = [f"# Run Output (Run ID: {run_id})", ""]
@@ -1319,15 +1607,26 @@ def list_job_runs(
     start_time_from: Optional[int] = None,
     start_time_to: Optional[int] = None,
     max_results: int = 25,
+    workspace: Optional[str] = None,
 ) -> str:
     """
     Lists job runs with optional filtering.
     Returns formatted Markdown. The SDK auto-paginates to fetch up to max_results.
+    
+    Args:
+        job_id: Optional job ID to filter runs.
+        active_only: Only show active runs.
+        completed_only: Only show completed runs.
+        expand_tasks: Include task details.
+        start_time_from: Filter runs started after this timestamp (ms).
+        start_time_to: Filter runs started before this timestamp (ms).
+        max_results: Maximum number of runs to return.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     try:
         if max_results <= 0:
             max_results = 1
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         runs_iterator = client.jobs.list_runs(
             job_id=job_id,
             active_only=active_only,
@@ -1495,7 +1794,11 @@ def _format_notebook_as_markdown(notebook: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def export_task_run(run_id: int, include_dashboards: bool = False) -> str:
+def export_task_run(
+    run_id: int,
+    include_dashboards: bool = False,
+    workspace: Optional[str] = None,
+) -> str:
     """
     Exports a task run as Markdown, including notebook code and outputs.
     Returns formatted Markdown with code cells and their results.
@@ -1503,9 +1806,10 @@ def export_task_run(run_id: int, include_dashboards: bool = False) -> str:
     Args:
         run_id: The task run ID (for multi-task jobs, use the individual task's run_id).
         include_dashboards: If True, exports dashboards in addition to notebooks.
+        workspace: Optional workspace name. Uses default if not specified.
     """
     try:
-        client = get_sdk_client()
+        client = get_workspace_client(workspace)
         views_to_export = (
             ViewsToExport.ALL if include_dashboards else ViewsToExport.CODE
         )

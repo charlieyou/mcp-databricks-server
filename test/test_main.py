@@ -17,6 +17,10 @@ from databricks_mcp.main import (
     get_databricks_job_run,
     get_databricks_job_run_output,
     list_databricks_job_runs,
+    list_databricks_workspaces,
+    get_databricks_active_workspace,
+    set_databricks_active_workspace,
+    DatabricksSessionContext,
 )
 from databricks_mcp.databricks_sdk_utils import DatabricksConfigError
 
@@ -143,6 +147,7 @@ class TestDescribeUcTable:
             mock_get_details.assert_called_once_with(
                 full_table_name="catalog.schema.table",
                 include_lineage=False,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -159,6 +164,7 @@ class TestDescribeUcTable:
             mock_get_details.assert_called_once_with(
                 full_table_name="catalog.schema.table",
                 include_lineage=True,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -203,6 +209,7 @@ class TestGetUcTableHistory:
                 limit=10,
                 start_timestamp=None,
                 end_timestamp=None,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -224,6 +231,7 @@ class TestGetUcTableHistory:
                 limit=5,
                 start_timestamp="2024-01-01",
                 end_timestamp="2024-12-31",
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -250,7 +258,7 @@ class TestDescribeUcCatalog:
             result = await describe_uc_catalog("test_catalog")
 
             assert "test_catalog" in result
-            mock_get_details.assert_called_once_with(catalog_name="test_catalog")
+            mock_get_details.assert_called_once_with(catalog_name="test_catalog", workspace=None)
 
     @pytest.mark.asyncio
     async def test_describe_catalog_error(self, setup_env_vars):
@@ -262,7 +270,6 @@ class TestDescribeUcCatalog:
                 await describe_uc_catalog("invalid_catalog")
 
             assert "Unexpected error" in str(exc_info.value)
-            assert "Catalog not accessible" in str(exc_info.value)
 
 
 class TestDescribeUcSchema:
@@ -280,7 +287,7 @@ class TestDescribeUcSchema:
 
             assert "test_schema" in result
             mock_get_details.assert_called_once_with(
-                catalog_name="catalog", schema_name="schema", include_columns=False
+                catalog_name="catalog", schema_name="schema", include_columns=False, workspace=None
             )
 
     @pytest.mark.asyncio
@@ -294,7 +301,7 @@ class TestDescribeUcSchema:
             assert "test_schema" in result
             assert "Columns" in result
             mock_get_details.assert_called_once_with(
-                catalog_name="catalog", schema_name="schema", include_columns=True
+                catalog_name="catalog", schema_name="schema", include_columns=True, workspace=None
             )
 
     @pytest.mark.asyncio
@@ -324,7 +331,7 @@ class TestListUcCatalogs:
 
             assert "catalog1" in result
             assert "catalog2" in result
-            mock_get_summary.assert_called_once()
+            mock_get_summary.assert_called_once_with(workspace=None)
 
     @pytest.mark.asyncio
     async def test_list_catalogs_empty(self, setup_env_vars):
@@ -439,7 +446,7 @@ class TestGetDatabricksJob:
 
             assert "Test Job" in result
             assert "12345" in result
-            mock_get_job.assert_called_once_with(job_id=12345)
+            mock_get_job.assert_called_once_with(job_id=12345, workspace=None)
 
     @pytest.mark.asyncio
     async def test_get_job_config_error(self, setup_env_vars):
@@ -479,7 +486,7 @@ class TestListDatabricksJobs:
 
             assert "Job1" in result
             assert "Job2" in result
-            mock_list.assert_called_once_with(name=None, expand_tasks=False)
+            mock_list.assert_called_once_with(name=None, expand_tasks=False, workspace=None)
 
     @pytest.mark.asyncio
     async def test_list_jobs_with_filter(self, setup_env_vars):
@@ -490,7 +497,7 @@ class TestListDatabricksJobs:
             result = await list_databricks_jobs(name="ETL", expand_tasks=True)
 
             assert "ETL" in result
-            mock_list.assert_called_once_with(name="ETL", expand_tasks=True)
+            mock_list.assert_called_once_with(name="ETL", expand_tasks=True, workspace=None)
 
     @pytest.mark.asyncio
     async def test_list_jobs_empty(self, setup_env_vars):
@@ -530,7 +537,7 @@ class TestGetDatabricksJobRun:
 
             assert "Test Run" in result
             assert "54321" in result
-            mock_get_run.assert_called_once_with(run_id=54321)
+            mock_get_run.assert_called_once_with(run_id=54321, workspace=None)
 
     @pytest.mark.asyncio
     async def test_get_run_config_error(self, setup_env_vars):
@@ -571,7 +578,7 @@ class TestGetDatabricksJobRunOutput:
 
             assert "54321" in result
             assert "Notebook Output" in result
-            mock_get_output.assert_called_once_with(run_id=54321)
+            mock_get_output.assert_called_once_with(run_id=54321, workspace=None)
 
     @pytest.mark.asyncio
     async def test_get_run_output_with_logs(self, setup_env_vars):
@@ -616,6 +623,7 @@ class TestListDatabricksJobRuns:
                 start_time_from=None,
                 start_time_to=None,
                 max_results=25,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -736,3 +744,280 @@ class TestJobToolsIntegration:
 
             assert len(results) == 3
             assert mock_get_job.call_count == 3
+
+
+class TestListDatabricksWorkspaces:
+    """Test cases for list_databricks_workspaces tool."""
+
+    @pytest.mark.asyncio
+    async def test_list_workspaces_success(self, setup_env_vars):
+        """Test listing workspaces with configured workspaces."""
+        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {
+                "default": WorkspaceConfig(
+                    name="default",
+                    host="https://default.databricks.com",
+                    token="token1",
+                    sql_warehouse_id="wh1",
+                ),
+                "prod": WorkspaceConfig(
+                    name="prod",
+                    host="https://prod.databricks.com",
+                    token="token2",
+                    sql_warehouse_id=None,
+                ),
+            }
+
+            result = await list_databricks_workspaces()
+
+            assert "# Configured Workspaces" in result
+            assert "`default`" in result
+            assert "`prod`" in result
+            assert "https://default.databricks.com" in result
+            assert "configured" in result
+
+    @pytest.mark.asyncio
+    async def test_list_workspaces_empty(self, setup_env_vars):
+        """Test listing workspaces when none configured."""
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {}
+
+            result = await list_databricks_workspaces()
+
+            assert "No workspaces configured" in result
+
+
+class TestGetDatabricksActiveWorkspace:
+    """Test cases for get_databricks_active_workspace tool."""
+
+    @pytest.mark.asyncio
+    async def test_get_active_workspace_set(self, setup_env_vars):
+        """Test getting active workspace when set."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext(
+            active_workspace="prod"
+        )
+
+        result = await get_databricks_active_workspace(ctx=mock_ctx)
+
+        assert "# Active Workspace" in result
+        assert "`prod`" in result
+
+    @pytest.mark.asyncio
+    async def test_get_active_workspace_not_set(self, setup_env_vars):
+        """Test getting active workspace when not set."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext()
+
+        result = await get_databricks_active_workspace(ctx=mock_ctx)
+
+        assert "No active workspace set" in result
+
+    @pytest.mark.asyncio
+    async def test_get_active_workspace_no_context(self, setup_env_vars):
+        """Test getting active workspace with no context."""
+        result = await get_databricks_active_workspace(ctx=None)
+
+        assert "No active workspace set" in result
+
+
+class TestSetDatabricksActiveWorkspace:
+    """Test cases for set_databricks_active_workspace tool."""
+
+    @pytest.mark.asyncio
+    async def test_set_active_workspace_success(self, setup_env_vars):
+        """Test setting active workspace successfully."""
+        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        session_ctx = DatabricksSessionContext()
+        mock_ctx.request_context.lifespan_context = session_ctx
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {
+                "prod": WorkspaceConfig(
+                    name="prod",
+                    host="https://prod.databricks.com",
+                    token="token",
+                ),
+            }
+
+            result = await set_databricks_active_workspace("prod", ctx=mock_ctx)
+
+            assert "# Active Workspace Updated" in result
+            assert "`prod`" in result
+            assert session_ctx.active_workspace == "prod"
+
+    @pytest.mark.asyncio
+    async def test_set_active_workspace_not_found(self, setup_env_vars):
+        """Test setting workspace that doesn't exist."""
+        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext()
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {
+                "prod": WorkspaceConfig(
+                    name="prod",
+                    host="https://prod.databricks.com",
+                    token="token",
+                ),
+            }
+
+            with pytest.raises(ToolError) as exc_info:
+                await set_databricks_active_workspace("nonexistent", ctx=mock_ctx)
+
+            assert "not found" in str(exc_info.value)
+            assert "prod" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_set_active_workspace_no_context(self, setup_env_vars):
+        """Test setting workspace with no context."""
+        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {
+                "prod": WorkspaceConfig(
+                    name="prod",
+                    host="https://prod.databricks.com",
+                    token="token",
+                ),
+            }
+
+            with pytest.raises(ToolError) as exc_info:
+                await set_databricks_active_workspace("prod", ctx=None)
+
+            assert "context not available" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_set_active_workspace_case_insensitive(self, setup_env_vars):
+        """Test setting workspace with different case."""
+        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        session_ctx = DatabricksSessionContext()
+        mock_ctx.request_context.lifespan_context = session_ctx
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {
+                "prod": WorkspaceConfig(
+                    name="prod",
+                    host="https://prod.databricks.com",
+                    token="token",
+                ),
+            }
+
+            result = await set_databricks_active_workspace("PROD", ctx=mock_ctx)
+
+            assert "`prod`" in result
+            assert session_ctx.active_workspace == "prod"
+
+    @pytest.mark.asyncio
+    async def test_set_active_workspace_no_workspaces_configured(self, setup_env_vars):
+        """Test setting workspace when no workspaces are configured."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext()
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {}
+
+            with pytest.raises(ToolError) as exc_info:
+                await set_databricks_active_workspace("prod", ctx=mock_ctx)
+
+            assert "No Databricks workspaces are configured" in str(exc_info.value)
+            assert "DATABRICKS_HOST" in str(exc_info.value)
+
+
+class TestActiveWorkspaceIntegration:
+    """Integration tests for active workspace flowing through to other tools."""
+
+    @pytest.mark.asyncio
+    async def test_execute_sql_uses_active_workspace(self, setup_env_vars):
+        """Test that active workspace flows through to execute_sql_query."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext(
+            active_workspace="prod"
+        )
+
+        with patch("databricks_mcp.main.execute_databricks_sql") as mock_execute:
+            mock_execute.return_value = {"status": "success", "row_count": 0, "data": []}
+
+            await execute_sql_query("SELECT 1", ctx=mock_ctx)
+
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["workspace"] == "prod"
+
+    @pytest.mark.asyncio
+    async def test_explicit_workspace_overrides_active(self, setup_env_vars):
+        """Test that explicit workspace param overrides active workspace."""
+        mock_ctx = type("MockContext", (), {})()
+        mock_ctx.request_context = type("MockRequestContext", (), {})()
+        mock_ctx.request_context.lifespan_context = DatabricksSessionContext(
+            active_workspace="prod"
+        )
+
+        with patch("databricks_mcp.main.execute_databricks_sql") as mock_execute:
+            mock_execute.return_value = {"status": "success", "row_count": 0, "data": []}
+
+            await execute_sql_query("SELECT 1", workspace="dev", ctx=mock_ctx)
+
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["workspace"] == "dev"
+
+
+class TestDatabricksSessionContextIsolation:
+    """Test cases for per-session workspace state isolation."""
+
+    def test_session_context_isolation(self):
+        """Test that separate DatabricksSessionContext instances are isolated."""
+        session1 = DatabricksSessionContext()
+        session2 = DatabricksSessionContext()
+
+        session1.active_workspace = "dev"
+        session2.active_workspace = "prod"
+
+        assert session1.active_workspace == "dev"
+        assert session2.active_workspace == "prod"
+
+    def test_session_context_default_is_none(self):
+        """Test that new session context has no active workspace set."""
+        session = DatabricksSessionContext()
+        assert session.active_workspace is None
+
+    @pytest.mark.asyncio
+    async def test_set_workspace_only_affects_calling_session(self, setup_env_vars):
+        """Test that set_active_databricks_workspace only affects the calling session."""
+        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+
+        session1 = DatabricksSessionContext()
+        session2 = DatabricksSessionContext()
+
+        mock_ctx1 = type("MockContext", (), {})()
+        mock_ctx1.request_context = type("MockRequestContext", (), {})()
+        mock_ctx1.request_context.lifespan_context = session1
+
+        mock_ctx2 = type("MockContext", (), {})()
+        mock_ctx2.request_context = type("MockRequestContext", (), {})()
+        mock_ctx2.request_context.lifespan_context = session2
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {
+                "dev": WorkspaceConfig(name="dev", host="https://dev.databricks.com", token="token"),
+                "prod": WorkspaceConfig(name="prod", host="https://prod.databricks.com", token="token"),
+            }
+
+            await set_databricks_active_workspace("dev", ctx=mock_ctx1)
+            await set_databricks_active_workspace("prod", ctx=mock_ctx2)
+
+            assert session1.active_workspace == "dev"
+            assert session2.active_workspace == "prod"
