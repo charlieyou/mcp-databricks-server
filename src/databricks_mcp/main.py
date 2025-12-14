@@ -98,7 +98,11 @@ def handle_tool_errors(tool_name):
 
 @mcp.tool()
 @handle_tool_errors("execute_sql_query")
-async def execute_sql_query(sql: str) -> str:
+async def execute_sql_query(
+    sql: str,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> str:
     """
     Executes a given SQL query against the Databricks SQL warehouse and returns the formatted results.
 
@@ -110,8 +114,12 @@ async def execute_sql_query(sql: str) -> str:
 
     Args:
         sql: The complete SQL query string to execute.
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
-    sdk_result = await asyncio.to_thread(execute_databricks_sql, sql_query=sql)
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
+    sdk_result = await asyncio.to_thread(
+        execute_databricks_sql, sql_query=sql, workspace=resolved_workspace
+    )
 
     status = sdk_result.get("status")
     if status == "failed":
@@ -130,7 +138,12 @@ async def execute_sql_query(sql: str) -> str:
 
 @mcp.tool()
 @handle_tool_errors("describe_uc_table")
-async def describe_uc_table(full_table_name: str, include_lineage: bool = False) -> str:
+async def describe_uc_table(
+    full_table_name: str,
+    include_lineage: bool = False,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> str:
     """
     Provides a detailed description of a specific Unity Catalog table.
 
@@ -166,11 +179,14 @@ async def describe_uc_table(full_table_name: str, include_lineage: bool = False)
         include_lineage: Set to True to fetch and include comprehensive lineage (tables, notebooks, jobs).
                          Defaults to False. May take longer to retrieve but provides rich context for
                          understanding data dependencies and enabling code exploration.
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     details_markdown = await asyncio.to_thread(
         get_uc_table_details,
         full_table_name=full_table_name,
         include_lineage=include_lineage,
+        workspace=resolved_workspace,
     )
     return details_markdown
 
@@ -182,6 +198,8 @@ async def get_uc_table_history(
     limit: int = 10,
     start_timestamp: str | None = None,
     end_timestamp: str | None = None,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
 ) -> str:
     """
     Retrieves the version history of a Delta table.
@@ -196,20 +214,27 @@ async def get_uc_table_history(
         limit: Maximum number of history records to return. Default is 10.
         start_timestamp: Optional. Filter to show only history after this timestamp (ISO format, e.g., '2024-01-01' or '2024-01-01T00:00:00').
         end_timestamp: Optional. Filter to show only history before this timestamp (ISO format).
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     history_markdown = await asyncio.to_thread(
         get_table_history,
         table_full_name=full_table_name,
         limit=limit,
         start_timestamp=start_timestamp,
         end_timestamp=end_timestamp,
+        workspace=resolved_workspace,
     )
     return history_markdown
 
 
 @mcp.tool()
 @handle_tool_errors("describe_uc_catalog")
-async def describe_uc_catalog(catalog_name: str) -> str:
+async def describe_uc_catalog(
+    catalog_name: str,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> str:
     """
     Provides a summary of a specific Unity Catalog, listing all its schemas with their names and descriptions.
 
@@ -219,9 +244,11 @@ async def describe_uc_catalog(catalog_name: str) -> str:
 
     Args:
         catalog_name: The name of the Unity Catalog to describe (e.g., `prod`, `dev`, `system`).
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     summary_markdown = await asyncio.to_thread(
-        get_uc_catalog_details, catalog_name=catalog_name
+        get_uc_catalog_details, catalog_name=catalog_name, workspace=resolved_workspace
     )
     return summary_markdown
 
@@ -229,7 +256,11 @@ async def describe_uc_catalog(catalog_name: str) -> str:
 @mcp.tool()
 @handle_tool_errors("describe_uc_schema")
 async def describe_uc_schema(
-    catalog_name: str, schema_name: str, include_columns: bool = False
+    catalog_name: str,
+    schema_name: str,
+    include_columns: bool = False,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
 ) -> str:
     """
     Provides detailed information about a specific schema within a Unity Catalog.
@@ -244,27 +275,39 @@ async def describe_uc_schema(
         catalog_name: The name of the catalog containing the schema.
         schema_name: The name of the schema to describe.
         include_columns: If True, lists tables with their columns. Defaults to False for a briefer summary.
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     details_markdown = await asyncio.to_thread(
         get_uc_schema_details,
         catalog_name=catalog_name,
         schema_name=schema_name,
         include_columns=include_columns,
+        workspace=resolved_workspace,
     )
     return details_markdown
 
 
 @mcp.tool()
 @handle_tool_errors("list_uc_catalogs")
-async def list_uc_catalogs() -> str:
+async def list_uc_catalogs(
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> str:
     """
     Lists all available Unity Catalogs with their names, descriptions, and types.
 
     Use this tool as a starting point to discover available data sources when you don't know specific catalog names.
     It provides a high-level overview of all accessible catalogs in the workspace.
     The output is formatted in Markdown.
+
+    Args:
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
-    summary_markdown = await asyncio.to_thread(get_uc_all_catalogs_summary)
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
+    summary_markdown = await asyncio.to_thread(
+        get_uc_all_catalogs_summary, workspace=resolved_workspace
+    )
     return summary_markdown
 
 
@@ -275,7 +318,11 @@ async def list_uc_catalogs() -> str:
 
 @mcp.tool()
 @handle_tool_errors("get_databricks_job")
-async def get_databricks_job(job_id: int) -> str:
+async def get_databricks_job(
+    job_id: int,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> str:
     """
     Retrieves details for a specific Databricks job by its job ID.
 
@@ -290,8 +337,10 @@ async def get_databricks_job(job_id: int) -> str:
 
     Args:
         job_id: The unique identifier of the job to retrieve.
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
-    return await asyncio.to_thread(get_job, job_id=job_id)
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
+    return await asyncio.to_thread(get_job, job_id=job_id, workspace=resolved_workspace)
 
 
 @mcp.tool()
@@ -299,6 +348,8 @@ async def get_databricks_job(job_id: int) -> str:
 async def list_databricks_jobs(
     name: str | None = None,
     expand_tasks: bool = False,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
 ) -> str:
     """
     Lists all Databricks jobs in the workspace with optional filtering.
@@ -311,17 +362,24 @@ async def list_databricks_jobs(
     Args:
         name: Optional filter to find jobs whose names contain this string.
         expand_tasks: If True, includes task keys in the output (default: False).
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(
         list_jobs,
         name=name,
         expand_tasks=expand_tasks,
+        workspace=resolved_workspace,
     )
 
 
 @mcp.tool()
 @handle_tool_errors("get_databricks_job_run")
-async def get_databricks_job_run(run_id: int) -> str:
+async def get_databricks_job_run(
+    run_id: int,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> str:
     """
     Retrieves details for a specific job run by its run ID.
 
@@ -336,13 +394,19 @@ async def get_databricks_job_run(run_id: int) -> str:
 
     Args:
         run_id: The unique identifier of the run to retrieve.
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
-    return await asyncio.to_thread(get_job_run, run_id=run_id)
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
+    return await asyncio.to_thread(get_job_run, run_id=run_id, workspace=resolved_workspace)
 
 
 @mcp.tool()
 @handle_tool_errors("get_databricks_job_run_output")
-async def get_databricks_job_run_output(run_id: int) -> str:
+async def get_databricks_job_run_output(
+    run_id: int,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
+) -> str:
     """
     Retrieves the output of a specific job run by its run ID.
 
@@ -358,8 +422,12 @@ async def get_databricks_job_run_output(run_id: int) -> str:
 
     Args:
         run_id: The unique identifier of the run whose output to retrieve.
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
-    return await asyncio.to_thread(get_job_run_output, run_id=run_id)
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
+    return await asyncio.to_thread(
+        get_job_run_output, run_id=run_id, workspace=resolved_workspace
+    )
 
 
 @mcp.tool()
@@ -372,6 +440,8 @@ async def list_databricks_job_runs(
     start_time_from: int | None = None,
     start_time_to: int | None = None,
     limit: int = 25,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
 ) -> str:
     """
     Lists all job runs with optional filtering by job ID, status, and time range.
@@ -393,7 +463,9 @@ async def list_databricks_job_runs(
         start_time_from: Optional filter for runs started after this time (milliseconds since epoch).
         start_time_to: Optional filter for runs started before this time (milliseconds since epoch).
         limit: Maximum number of runs to return (default: 25). Auto-paginates if needed.
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(
         list_job_runs,
         job_id=job_id,
@@ -403,6 +475,7 @@ async def list_databricks_job_runs(
         start_time_from=start_time_from,
         start_time_to=start_time_to,
         max_results=limit,
+        workspace=resolved_workspace,
     )
 
 
@@ -411,6 +484,8 @@ async def list_databricks_job_runs(
 async def export_databricks_task_run(
     run_id: int,
     include_dashboards: bool = False,
+    workspace: Optional[str] = None,
+    ctx: Optional[Context] = None,
 ) -> str:
     """
     Exports a task run as HTML, including notebook code and rendered outputs.
@@ -430,11 +505,14 @@ async def export_databricks_task_run(
     Args:
         run_id: The task run ID to export.
         include_dashboards: If True, also exports any dashboards (default: False).
+        workspace: Optional workspace name. Uses session's active workspace if not specified.
     """
+    resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(
         export_task_run,
         run_id=run_id,
         include_dashboards=include_dashboards,
+        workspace=resolved_workspace,
     )
 
 

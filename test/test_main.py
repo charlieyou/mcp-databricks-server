@@ -143,6 +143,7 @@ class TestDescribeUcTable:
             mock_get_details.assert_called_once_with(
                 full_table_name="catalog.schema.table",
                 include_lineage=False,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -159,6 +160,7 @@ class TestDescribeUcTable:
             mock_get_details.assert_called_once_with(
                 full_table_name="catalog.schema.table",
                 include_lineage=True,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -203,6 +205,7 @@ class TestGetUcTableHistory:
                 limit=10,
                 start_timestamp=None,
                 end_timestamp=None,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -224,6 +227,7 @@ class TestGetUcTableHistory:
                 limit=5,
                 start_timestamp="2024-01-01",
                 end_timestamp="2024-12-31",
+                workspace=None,
             )
 
     @pytest.mark.asyncio
@@ -250,7 +254,7 @@ class TestDescribeUcCatalog:
             result = await describe_uc_catalog("test_catalog")
 
             assert "test_catalog" in result
-            mock_get_details.assert_called_once_with(catalog_name="test_catalog")
+            mock_get_details.assert_called_once_with(catalog_name="test_catalog", workspace=None)
 
     @pytest.mark.asyncio
     async def test_describe_catalog_error(self, setup_env_vars):
@@ -280,7 +284,7 @@ class TestDescribeUcSchema:
 
             assert "test_schema" in result
             mock_get_details.assert_called_once_with(
-                catalog_name="catalog", schema_name="schema", include_columns=False
+                catalog_name="catalog", schema_name="schema", include_columns=False, workspace=None
             )
 
     @pytest.mark.asyncio
@@ -294,7 +298,7 @@ class TestDescribeUcSchema:
             assert "test_schema" in result
             assert "Columns" in result
             mock_get_details.assert_called_once_with(
-                catalog_name="catalog", schema_name="schema", include_columns=True
+                catalog_name="catalog", schema_name="schema", include_columns=True, workspace=None
             )
 
     @pytest.mark.asyncio
@@ -324,7 +328,7 @@ class TestListUcCatalogs:
 
             assert "catalog1" in result
             assert "catalog2" in result
-            mock_get_summary.assert_called_once()
+            mock_get_summary.assert_called_once_with(workspace=None)
 
     @pytest.mark.asyncio
     async def test_list_catalogs_empty(self, setup_env_vars):
@@ -439,7 +443,7 @@ class TestGetDatabricksJob:
 
             assert "Test Job" in result
             assert "12345" in result
-            mock_get_job.assert_called_once_with(job_id=12345)
+            mock_get_job.assert_called_once_with(job_id=12345, workspace=None)
 
     @pytest.mark.asyncio
     async def test_get_job_config_error(self, setup_env_vars):
@@ -479,7 +483,7 @@ class TestListDatabricksJobs:
 
             assert "Job1" in result
             assert "Job2" in result
-            mock_list.assert_called_once_with(name=None, expand_tasks=False)
+            mock_list.assert_called_once_with(name=None, expand_tasks=False, workspace=None)
 
     @pytest.mark.asyncio
     async def test_list_jobs_with_filter(self, setup_env_vars):
@@ -490,7 +494,7 @@ class TestListDatabricksJobs:
             result = await list_databricks_jobs(name="ETL", expand_tasks=True)
 
             assert "ETL" in result
-            mock_list.assert_called_once_with(name="ETL", expand_tasks=True)
+            mock_list.assert_called_once_with(name="ETL", expand_tasks=True, workspace=None)
 
     @pytest.mark.asyncio
     async def test_list_jobs_empty(self, setup_env_vars):
@@ -530,7 +534,7 @@ class TestGetDatabricksJobRun:
 
             assert "Test Run" in result
             assert "54321" in result
-            mock_get_run.assert_called_once_with(run_id=54321)
+            mock_get_run.assert_called_once_with(run_id=54321, workspace=None)
 
     @pytest.mark.asyncio
     async def test_get_run_config_error(self, setup_env_vars):
@@ -571,7 +575,7 @@ class TestGetDatabricksJobRunOutput:
 
             assert "54321" in result
             assert "Notebook Output" in result
-            mock_get_output.assert_called_once_with(run_id=54321)
+            mock_get_output.assert_called_once_with(run_id=54321, workspace=None)
 
     @pytest.mark.asyncio
     async def test_get_run_output_with_logs(self, setup_env_vars):
@@ -616,6 +620,7 @@ class TestListDatabricksJobRuns:
                 start_time_from=None,
                 start_time_to=None,
                 max_results=25,
+                workspace=None,
             )
 
     @pytest.mark.asyncio
