@@ -124,6 +124,15 @@ def reload_workspace_configs() -> None:
         _workspace_clients = {}
 
 
+def get_workspace_configs() -> Dict[str, WorkspaceConfig]:
+    """
+    Returns a copy of the current workspace configurations.
+    
+    Used by MCP tools to list available workspaces.
+    """
+    return dict(_workspace_configs)
+
+
 def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
     """
     Resolve workspace name with priority:

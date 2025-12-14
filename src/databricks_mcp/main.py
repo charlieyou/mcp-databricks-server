@@ -22,6 +22,7 @@ from .databricks_sdk_utils import (
     get_uc_catalog_details,
     get_uc_schema_details,
     get_uc_table_details,
+    get_workspace_configs,
     list_job_runs,
     list_jobs,
 )
@@ -514,6 +515,106 @@ async def export_databricks_task_run(
         include_dashboards=include_dashboards,
         workspace=resolved_workspace,
     )
+
+
+# ============================================================================
+# Workspace management MCP tools
+# ============================================================================
+
+
+@mcp.tool()
+@handle_tool_errors("list_databricks_workspaces")
+async def list_databricks_workspaces() -> str:
+    """
+    Lists all configured Databricks workspaces.
+
+    Use this tool to discover available workspaces for multi-workspace operations.
+    Returns workspace names along with their host URLs and whether a SQL warehouse
+    is configured for each.
+
+    The output is formatted in Markdown.
+    """
+    configs = get_workspace_configs()
+    if not configs:
+        return "# Configured Workspaces\n\n*No workspaces configured.*"
+
+    lines = ["# Configured Workspaces", ""]
+    for name, config in sorted(configs.items()):
+        warehouse_status = "configured" if config.sql_warehouse_id else "not configured"
+        lines.append(f"## `{name}`")
+        lines.append(f"- **Host**: `{config.host}`")
+        lines.append(f"- **SQL Warehouse**: {warehouse_status}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+@handle_tool_errors("get_databricks_active_workspace")
+async def get_databricks_active_workspace(
+    ctx: Optional[Context] = None,
+) -> str:
+    """
+    Returns the currently active Databricks workspace for this session.
+
+    The active workspace is used as the default when no explicit workspace
+    parameter is provided to other tools.
+
+    The output is formatted in Markdown.
+    """
+    active = None
+    if ctx is not None:
+        try:
+            lifespan_ctx = ctx.request_context.lifespan_context
+            if isinstance(lifespan_ctx, DatabricksSessionContext):
+                active = lifespan_ctx.active_workspace
+        except (AttributeError, TypeError):
+            pass
+
+    if active:
+        return f"# Active Workspace\n\n**Current**: `{active}`"
+    return "# Active Workspace\n\n*No active workspace set. Tools will use the default workspace.*"
+
+
+@mcp.tool()
+@handle_tool_errors("set_databricks_active_workspace")
+async def set_databricks_active_workspace(
+    workspace: str,
+    ctx: Optional[Context] = None,
+) -> str:
+    """
+    Sets the active Databricks workspace for this session.
+
+    Once set, all subsequent tool calls that don't specify an explicit workspace
+    parameter will use this workspace by default.
+
+    Use list_databricks_workspaces to see available workspaces.
+
+    The output is formatted in Markdown.
+
+    Args:
+        workspace: The name of the workspace to set as active.
+    """
+    configs = get_workspace_configs()
+    normalized = workspace.strip().lower()
+
+    if normalized not in configs:
+        available = ", ".join(sorted(configs.keys())) if configs else "none"
+        raise ToolError(
+            f"Workspace '{workspace}' not found. Available workspaces: {available}"
+        )
+
+    if ctx is None:
+        raise ToolError("Session context not available. Cannot set active workspace.")
+
+    try:
+        lifespan_ctx = ctx.request_context.lifespan_context
+        if not isinstance(lifespan_ctx, DatabricksSessionContext):
+            raise ToolError("Session context is not a DatabricksSessionContext.")
+        lifespan_ctx.active_workspace = normalized
+    except (AttributeError, TypeError) as e:
+        raise ToolError(f"Failed to access session context: {e}") from e
+
+    return f"# Active Workspace Updated\n\n**Set to**: `{normalized}`"
 
 
 def main():
