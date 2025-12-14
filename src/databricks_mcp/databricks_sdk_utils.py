@@ -257,14 +257,17 @@ def get_sql_warehouse_id(workspace: Optional[str] = None) -> Optional[str]:
     return _workspace_configs[resolved_name].sql_warehouse_id
 
 
-def get_sdk_client() -> WorkspaceClient:
+def get_sdk_client(workspace: Optional[str] = None) -> WorkspaceClient:
     """
     Lazily initializes and returns the Databricks WorkspaceClient.
     
     Backward compatibility alias for get_workspace_client().
     Delegates to get_workspace_client() which uses the default workspace.
+    
+    Args:
+        workspace: Optional workspace name. If None, uses default workspace.
     """
-    return get_workspace_client()
+    return get_workspace_client(workspace)
 
 
 # Cache for job information to avoid redundant API calls
