@@ -1,3 +1,4 @@
+import configparser
 import itertools
 import json
 import logging
@@ -6,10 +7,10 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.core import Config
 from databricks.sdk.service.catalog import (
     CatalogInfo,
     ColumnInfo,
@@ -45,81 +46,94 @@ class DatabricksConfigError(RuntimeError):
 @dataclass(frozen=True)
 class WorkspaceConfig:
     """Configuration for a Databricks workspace."""
-    name: str
-    host: str
-    token: str
+    name: str  # Internal normalized name (lowercase)
+    host: Optional[str] = None  # For display/diagnostics only
+    token: Optional[str] = None  # Optional - SDK handles auth validation
     sql_warehouse_id: Optional[str] = None
+    profile: Optional[str] = None  # Actual profile name from .databrickscfg
 
 
-def _load_workspace_configs_from_env() -> Dict[str, WorkspaceConfig]:
+def _get_databrickscfg_path() -> Path:
+    """Get the path to .databrickscfg file, respecting DATABRICKS_CONFIG_FILE."""
+    config_file = os.environ.get("DATABRICKS_CONFIG_FILE")
+    if config_file:
+        return Path(os.path.expanduser(config_file))
+    return Path.home() / ".databrickscfg"
+
+
+def _load_workspace_configs_from_profiles() -> Dict[str, WorkspaceConfig]:
     """
-    Load workspace configurations from environment variables.
+    Load workspace configurations from ~/.databrickscfg profiles.
     
-    Supports:
-    - DATABRICKS_HOST/TOKEN for 'default' workspace
-    - DATABRICKS_<NAME>_HOST/TOKEN for named workspaces
+    Each profile section becomes a workspace with the profile name as the workspace name.
+    The DEFAULT section is mapped to 'default' workspace name.
+    
+    Uses RawConfigParser to avoid interpolation issues with tokens containing %.
+    Does not require token - lets SDK handle auth validation for different auth methods.
     
     Returns dict of workspace name -> WorkspaceConfig.
-    Skips incomplete configs (missing host or token).
     """
     configs: Dict[str, WorkspaceConfig] = {}
     
-    # Check for default workspace (legacy vars)
-    default_host = os.environ.get("DATABRICKS_HOST")
-    default_token = os.environ.get("DATABRICKS_TOKEN")
-    if default_host and default_token:
+    cfg_path = _get_databrickscfg_path()
+    if not cfg_path.exists():
+        logger.warning(f"Databricks config file not found: {cfg_path}")
+        return configs
+    
+    # Use RawConfigParser to avoid interpolation issues with tokens containing %
+    parser = configparser.RawConfigParser()
+    try:
+        parser.read(cfg_path)
+    except configparser.Error as e:
+        logger.error(f"Error parsing {cfg_path}: {e}")
+        return configs
+    
+    # Handle DEFAULT section specially - configparser stores it in defaults()
+    defaults = parser.defaults()
+    if defaults.get("host"):
         configs["default"] = WorkspaceConfig(
             name="default",
-            host=default_host,
-            token=default_token,
-            sql_warehouse_id=os.environ.get("DATABRICKS_SQL_WAREHOUSE_ID"),
+            host=defaults.get("host"),
+            token=defaults.get("token"),
+            sql_warehouse_id=defaults.get("sql_warehouse_id"),
+            profile="DEFAULT",
         )
     
-    # Scan for named workspaces: DATABRICKS_<NAME>_HOST pattern
-    seen_names: set[str] = set()
-    for key in os.environ:
-        if key.startswith("DATABRICKS_") and key.endswith("_HOST"):
-            # Extract name: DATABRICKS_<NAME>_HOST -> <NAME>
-            middle = key[len("DATABRICKS_"):-len("_HOST")]
-            if not middle or middle == "SQL_WAREHOUSE":
-                continue  # Skip DATABRICKS_SQL_WAREHOUSE_ID pattern
-            
-            name = middle.lower()
-            if name == "default":
-                continue  # Reserved for legacy vars
-            if name in seen_names:
-                continue
-            seen_names.add(name)
-            
-            host = os.environ.get(key)
-            token = os.environ.get(f"DATABRICKS_{middle}_TOKEN")
-            if not host or not token:
-                continue  # Skip incomplete configs
-            
-            warehouse_id = os.environ.get(f"DATABRICKS_{middle}_SQL_WAREHOUSE_ID")
-            configs[name] = WorkspaceConfig(
-                name=name,
-                host=host,
-                token=token,
-                sql_warehouse_id=warehouse_id,
-            )
+    # Process named sections (inherit from DEFAULT via parser.get with raw=True)
+    for section in parser.sections():
+        # Use raw=True to get inherited values from DEFAULT without interpolation
+        items = dict(parser.items(section, raw=True))
+        host = items.get("host")
+        if not host:
+            continue  # Skip profiles without host
+        
+        # Normalize profile name to lowercase for internal use
+        workspace_name = section.lower()
+        
+        configs[workspace_name] = WorkspaceConfig(
+            name=workspace_name,
+            host=host,
+            token=items.get("token"),
+            sql_warehouse_id=items.get("sql_warehouse_id"),
+            profile=section,  # Preserve original case for SDK
+        )
     
     return configs
 
 
 # Load workspace configs at import time
-_workspace_configs: Dict[str, WorkspaceConfig] = _load_workspace_configs_from_env()
+_workspace_configs: Dict[str, WorkspaceConfig] = _load_workspace_configs_from_profiles()
 
 
 def reload_workspace_configs() -> None:
     """
-    Reload workspace configurations from environment variables.
+    Reload workspace configurations from .databrickscfg.
     
-    Useful for testing when environment variables change after module import.
+    Useful for testing when the config file changes after module import.
     Also clears cached workspace clients.
     """
     global _workspace_configs, _workspace_clients
-    _workspace_configs = _load_workspace_configs_from_env()
+    _workspace_configs = _load_workspace_configs_from_profiles()
     with _workspace_clients_lock:
         _workspace_clients = {}
 
@@ -137,16 +151,18 @@ def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
     """
     Resolve workspace name with priority:
     1. Explicit param if provided (case-insensitive, whitespace ignored)
-    2. 'default' if exists
-    3. Single workspace if only one configured
-    4. Error if ambiguous or none configured
+    2. DATABRICKS_CONFIG_PROFILE env var if set and matches a workspace
+    3. 'default' if exists
+    4. Single workspace if only one configured
+    5. Error if ambiguous or none configured
     
     Raises DatabricksConfigError on failure.
     """
     if not _workspace_configs:
+        cfg_path = _get_databrickscfg_path()
         raise DatabricksConfigError(
-            "No Databricks workspaces configured. Set DATABRICKS_HOST and DATABRICKS_TOKEN, "
-            "or DATABRICKS_<NAME>_HOST and DATABRICKS_<NAME>_TOKEN for named workspaces."
+            f"No Databricks profiles configured. "
+            f"Create {cfg_path} or set DATABRICKS_CONFIG_FILE."
         )
     
     if workspace is not None:
@@ -161,7 +177,19 @@ def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
             return normalized
         # Empty/whitespace-only treated as "not specified" - fall through
     
-    # Try 'default' first
+    # Check DATABRICKS_CONFIG_PROFILE env var
+    env_profile = os.environ.get("DATABRICKS_CONFIG_PROFILE")
+    if env_profile:
+        normalized_env = env_profile.strip().lower()
+        if normalized_env in _workspace_configs:
+            return normalized_env
+        else:
+            logger.warning(
+                f"DATABRICKS_CONFIG_PROFILE='{env_profile}' does not match any configured workspace. "
+                f"Available: {', '.join(sorted(_workspace_configs.keys()))}. Falling back to default resolution."
+            )
+    
+    # Try 'default' if exists
     if "default" in _workspace_configs:
         return "default"
     
@@ -186,6 +214,7 @@ def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
     """
     Get a WorkspaceClient for the specified workspace.
     
+    Uses the profile from .databrickscfg for authentication (supports PAT, OAuth, etc.).
     Lazily creates and caches clients per workspace name.
     Uses _resolve_workspace_name to determine which workspace to use.
     Uses double-checked locking to minimize lock hold time.
@@ -198,15 +227,16 @@ def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
         if existing is not None:
             return existing
     
-    # Create client outside lock
+    # Create client outside lock using profile-based auth
     config = _workspace_configs[resolved_name]
-    sdk_config = Config(
-        host=config.host,
-        token=config.token,
+    
+    # Use the SDK's native profile support for unified auth
+    # This supports PAT, OAuth, Azure CLI, and other auth methods
+    new_client = WorkspaceClient(
+        profile=config.profile,
         http_timeout_seconds=30,
         retry_timeout_seconds=60,
     )
-    new_client = WorkspaceClient(config=sdk_config)
     
     # Second check under lock to prevent duplicate clients
     with _workspace_clients_lock:

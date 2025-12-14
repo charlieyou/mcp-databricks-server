@@ -60,62 +60,62 @@ class TestGetSdkClient:
             assert mock_client.call_count == 1
             assert client1 is client2
 
-    def test_get_sdk_client_missing_host(self, monkeypatch):
-        """Test that missing DATABRICKS_HOST raises error."""
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.setenv("DATABRICKS_TOKEN", "test_token")
+    def test_get_sdk_client_missing_config_file(self, monkeypatch, tmp_path):
+        """Test that missing .databrickscfg raises error."""
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(tmp_path / "nonexistent"))
         databricks_sdk_utils.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
             get_sdk_client()
 
-        assert "No Databricks workspaces configured" in str(exc_info.value)
+        assert "No Databricks profiles configured" in str(exc_info.value)
 
-    def test_get_sdk_client_missing_token(self, monkeypatch):
-        """Test that missing DATABRICKS_TOKEN raises error."""
-        monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+    def test_get_sdk_client_empty_config_file(self, monkeypatch, tmp_path):
+        """Test that empty .databrickscfg raises error."""
+        cfg_file = tmp_path / ".databrickscfg"
+        cfg_file.write_text("")
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
         databricks_sdk_utils.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
             get_sdk_client()
 
-        assert "No Databricks workspaces configured" in str(exc_info.value)
+        assert "No Databricks profiles configured" in str(exc_info.value)
 
 
 class TestResolveWorkspaceName:
     """Test cases for _resolve_workspace_name function."""
 
-    def test_resolve_workspace_name_lowercase_normalization(self, monkeypatch):
+    def test_resolve_workspace_name_lowercase_normalization(self, monkeypatch, tmp_path):
         """Test that workspace names are normalized to lowercase."""
-        monkeypatch.setenv("DATABRICKS_PROD_HOST", "https://prod.databricks.com")
-        monkeypatch.setenv("DATABRICKS_PROD_TOKEN", "token")
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        cfg_file = tmp_path / ".databrickscfg"
+        cfg_file.write_text("""[PROD]
+host = https://prod.databricks.com
+token = token
+""")
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
         databricks_sdk_utils.reload_workspace_configs()
 
         assert _resolve_workspace_name("PROD") == "prod"
         assert _resolve_workspace_name("Prod") == "prod"
         assert _resolve_workspace_name("prod") == "prod"
 
-    def test_resolve_workspace_name_strips_whitespace(self, monkeypatch):
+    def test_resolve_workspace_name_strips_whitespace(self, monkeypatch, tmp_path):
         """Test that workspace names have whitespace stripped."""
-        monkeypatch.setenv("DATABRICKS_DEV_HOST", "https://dev.databricks.com")
-        monkeypatch.setenv("DATABRICKS_DEV_TOKEN", "token")
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        cfg_file = tmp_path / ".databrickscfg"
+        cfg_file.write_text("""[DEV]
+host = https://dev.databricks.com
+token = token
+""")
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
         databricks_sdk_utils.reload_workspace_configs()
 
         assert _resolve_workspace_name("  dev  ") == "dev"
         assert _resolve_workspace_name("dev ") == "dev"
         assert _resolve_workspace_name(" dev") == "dev"
 
-    def test_resolve_workspace_name_not_found(self, monkeypatch):
+    def test_resolve_workspace_name_not_found(self, setup_env_vars):
         """Test error when workspace not found."""
-        monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "token")
-        databricks_sdk_utils.reload_workspace_configs()
-
         with pytest.raises(DatabricksConfigError) as exc_info:
             _resolve_workspace_name("nonexistent")
         assert "not found" in str(exc_info.value)
@@ -124,12 +124,14 @@ class TestResolveWorkspaceName:
         """Test fallback to default workspace."""
         assert _resolve_workspace_name(None) == "default"
 
-    def test_resolve_workspace_name_single_workspace(self, monkeypatch):
+    def test_resolve_workspace_name_single_workspace(self, monkeypatch, tmp_path):
         """Test auto-selection when only one workspace configured."""
-        monkeypatch.setenv("DATABRICKS_STAGING_HOST", "https://staging.databricks.com")
-        monkeypatch.setenv("DATABRICKS_STAGING_TOKEN", "token")
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        cfg_file = tmp_path / ".databrickscfg"
+        cfg_file.write_text("""[STAGING]
+host = https://staging.databricks.com
+token = token
+""")
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
         databricks_sdk_utils.reload_workspace_configs()
 
         assert _resolve_workspace_name(None) == "staging"
@@ -139,14 +141,18 @@ class TestResolveWorkspaceName:
         assert _resolve_workspace_name("   ") == "default"
         assert _resolve_workspace_name("") == "default"
 
-    def test_resolve_workspace_name_ambiguous_multiple_workspaces(self, monkeypatch):
+    def test_resolve_workspace_name_ambiguous_multiple_workspaces(self, monkeypatch, tmp_path):
         """Test error when multiple workspaces and no default."""
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
-        monkeypatch.setenv("DATABRICKS_DEV_HOST", "https://dev.databricks.com")
-        monkeypatch.setenv("DATABRICKS_DEV_TOKEN", "token_dev")
-        monkeypatch.setenv("DATABRICKS_PROD_HOST", "https://prod.databricks.com")
-        monkeypatch.setenv("DATABRICKS_PROD_TOKEN", "token_prod")
+        cfg_file = tmp_path / ".databrickscfg"
+        cfg_file.write_text("""[DEV]
+host = https://dev.databricks.com
+token = token_dev
+
+[PROD]
+host = https://prod.databricks.com
+token = token_prod
+""")
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
         databricks_sdk_utils.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
@@ -160,6 +166,23 @@ class TestResolveWorkspaceName:
         """Test that 'default' workspace is matched case-insensitively."""
         assert _resolve_workspace_name("DEFAULT") == "default"
         assert _resolve_workspace_name("Default") == "default"
+    
+    def test_resolve_workspace_name_respects_config_profile_env(self, monkeypatch, tmp_path):
+        """Test that DATABRICKS_CONFIG_PROFILE is respected when no default."""
+        cfg_file = tmp_path / ".databrickscfg"
+        cfg_file.write_text("""[DEV]
+host = https://dev.databricks.com
+token = token_dev
+
+[PROD]
+host = https://prod.databricks.com
+token = token_prod
+""")
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", "PROD")
+        databricks_sdk_utils.reload_workspace_configs()
+
+        assert _resolve_workspace_name(None) == "prod"
 
 
 class TestExecuteDatabricksSql:
@@ -183,12 +206,14 @@ class TestExecuteDatabricksSql:
             assert len(result["data"]) == 2
             assert result["data"][0]["id"] == "1"
 
-    def test_execute_sql_no_warehouse_id(self, monkeypatch):
+    def test_execute_sql_no_warehouse_id(self, monkeypatch, tmp_path):
         """Test SQL execution without warehouse ID."""
-        # Set up env vars without warehouse ID and reload configs
-        monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "test_token")
-        monkeypatch.delenv("DATABRICKS_SQL_WAREHOUSE_ID", raising=False)
+        cfg_file = tmp_path / ".databrickscfg"
+        cfg_file.write_text("""[DEFAULT]
+host = https://test.databricks.com
+token = test_token
+""")
+        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
         databricks_sdk_utils.reload_workspace_configs()
 
         result = databricks_sdk_utils.execute_databricks_sql("SELECT 1")
@@ -1012,7 +1037,7 @@ class TestMultiWorkspaceConfig:
         with patch(
             "databricks_mcp.databricks_sdk_utils.WorkspaceClient"
         ) as mock_client:
-            mock_client.side_effect = lambda **kwargs: Mock(name=f"client-{kwargs.get('config').host}")
+            mock_client.side_effect = lambda **kwargs: Mock(name=f"client-{kwargs.get('profile')}")
 
             client_default = get_workspace_client("default")
             client_dev = get_workspace_client("dev")
@@ -1030,7 +1055,7 @@ class TestMultiWorkspaceConfig:
         assert get_sql_warehouse_id("dev") == "dev_warehouse"
 
     def test_workspace_configs_parsed_correctly(self, setup_two_workspaces):
-        """Test that workspace configs are parsed from environment variables."""
+        """Test that workspace configs are parsed from .databrickscfg profiles."""
         from databricks_mcp.databricks_sdk_utils import get_workspace_configs
 
         configs = get_workspace_configs()

@@ -29,56 +29,25 @@ MCP server for Databricks Unity Catalog. Enables LLM agents to explore catalogs,
 uv pip install -e .
 ```
 
-### Single Workspace
+### Configuration
 
-Create a `.env` file:
+Configure workspaces using `~/.databrickscfg` (or set `DATABRICKS_CONFIG_FILE` to use an alternative path):
 
-```env
-DATABRICKS_HOST="your-databricks-instance.cloud.databricks.com"
-DATABRICKS_TOKEN="your-token"
-DATABRICKS_SQL_WAREHOUSE_ID="your-warehouse-id"
+```ini
+[DEFAULT]
+host = https://prod.cloud.databricks.com
+token = your-prod-token
+sql_warehouse_id = your-warehouse-id
+
+[DEV]
+host = https://dev.cloud.databricks.com
+token = your-dev-token
+sql_warehouse_id = dev-warehouse-id
 ```
 
-### Multiple Workspaces
+The `DEFAULT` section maps to the `default` workspace name. Named sections (e.g., `[DEV]`) become lowercase workspace names (e.g., `dev`).
 
-Configure multiple workspaces using named environment variables:
-
-```env
-# Default workspace (used when no workspace is specified)
-DATABRICKS_HOST="prod.cloud.databricks.com"
-DATABRICKS_TOKEN="prod-token"
-DATABRICKS_SQL_WAREHOUSE_ID="prod-warehouse-id"
-
-# Additional workspaces use the pattern DATABRICKS_{NAME}_{VAR}
-DATABRICKS_DEV_HOST="dev.cloud.databricks.com"
-DATABRICKS_DEV_TOKEN="dev-token"
-DATABRICKS_DEV_SQL_WAREHOUSE_ID="dev-warehouse-id"
-
-DATABRICKS_STAGING_HOST="staging.cloud.databricks.com"
-DATABRICKS_STAGING_TOKEN="staging-token"
-```
-
-**Workspace Selection:**
-
-1. **Per-request**: Pass `workspace="dev"` to any tool
-2. **Per-session**: Use `set_databricks_active_workspace("dev")` to set the default for subsequent calls
-3. **Fallback**: If only one workspace is configured, it's used automatically. Otherwise, the `default` workspace is used.
-
-**Example Usage:**
-
-```python
-# List available workspaces
-list_databricks_workspaces()
-
-# Set dev as active for this session
-set_databricks_active_workspace("dev")
-
-# Now all calls use dev workspace
-list_uc_catalogs()
-
-# Override for a specific call
-execute_sql_query("SELECT 1", workspace="prod")
-```
+**Note:** This server uses `.databrickscfg` for all authentication. Pure environment variable setups (`DATABRICKS_HOST`/`DATABRICKS_TOKEN` without a config file) are not supported. The SDK's profile-based auth supports PAT tokens, OAuth, Azure CLI, and other authentication methods.
 
 ## Running
 

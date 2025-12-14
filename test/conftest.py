@@ -189,25 +189,34 @@ def mock_databricks_client():
 
 
 @pytest.fixture
-def setup_env_vars(monkeypatch):
-    """Set up required environment variables for tests."""
-    monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
-    monkeypatch.setenv("DATABRICKS_TOKEN", "test_token")
-    monkeypatch.setenv("DATABRICKS_SQL_WAREHOUSE_ID", "test_warehouse_id")
-    # Reload workspace configs after setting env vars
+def setup_env_vars(monkeypatch, tmp_path):
+    """Set up a temp .databrickscfg file with a DEFAULT profile for tests."""
+    cfg_file = tmp_path / ".databrickscfg"
+    cfg_file.write_text("""[DEFAULT]
+host = https://test.databricks.com
+token = test_token
+sql_warehouse_id = test_warehouse_id
+""")
+    monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
     from databricks_mcp import databricks_sdk_utils
     databricks_sdk_utils.reload_workspace_configs()
 
 
 @pytest.fixture
-def setup_two_workspaces(monkeypatch):
+def setup_two_workspaces(monkeypatch, tmp_path):
     """Set up two workspaces (default and dev) for multi-workspace tests."""
-    monkeypatch.setenv("DATABRICKS_HOST", "https://default.databricks.com")
-    monkeypatch.setenv("DATABRICKS_TOKEN", "default_token")
-    monkeypatch.setenv("DATABRICKS_SQL_WAREHOUSE_ID", "default_warehouse")
-    monkeypatch.setenv("DATABRICKS_DEV_HOST", "https://dev.databricks.com")
-    monkeypatch.setenv("DATABRICKS_DEV_TOKEN", "dev_token")
-    monkeypatch.setenv("DATABRICKS_DEV_SQL_WAREHOUSE_ID", "dev_warehouse")
+    cfg_file = tmp_path / ".databrickscfg"
+    cfg_file.write_text("""[DEFAULT]
+host = https://default.databricks.com
+token = default_token
+sql_warehouse_id = default_warehouse
+
+[DEV]
+host = https://dev.databricks.com
+token = dev_token
+sql_warehouse_id = dev_warehouse
+""")
+    monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
     from databricks_mcp import databricks_sdk_utils
     databricks_sdk_utils.reload_workspace_configs()
 
