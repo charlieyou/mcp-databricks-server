@@ -194,6 +194,11 @@ def setup_env_vars(monkeypatch):
     monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
     monkeypatch.setenv("DATABRICKS_TOKEN", "test_token")
     monkeypatch.setenv("DATABRICKS_SQL_WAREHOUSE_ID", "test_warehouse_id")
+    # Reload workspace configs after setting env vars
+    from databricks_mcp import databricks_sdk_utils
+    databricks_sdk_utils.reload_workspace_configs()
+    # Also update the module-level globals for backward compatibility
+    databricks_sdk_utils.DATABRICKS_SQL_WAREHOUSE_ID = "test_warehouse_id"
 
 
 @pytest.fixture(autouse=True)
@@ -202,9 +207,11 @@ def reset_sdk_client():
     from databricks_mcp import databricks_sdk_utils
 
     databricks_sdk_utils._sdk_client = None
+    databricks_sdk_utils._workspace_clients = {}
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}
     yield
     databricks_sdk_utils._sdk_client = None
+    databricks_sdk_utils._workspace_clients = {}
     databricks_sdk_utils._job_cache = {}
     databricks_sdk_utils._notebook_cache = {}
