@@ -183,21 +183,33 @@ def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
     
     Lazily creates and caches clients per workspace name.
     Uses _resolve_workspace_name to determine which workspace to use.
+    Uses double-checked locking to minimize lock hold time.
     """
     resolved_name = _resolve_workspace_name(workspace)
     
+    # First check under lock
     with _workspace_clients_lock:
-        if resolved_name not in _workspace_clients:
-            config = _workspace_configs[resolved_name]
-            sdk_config = Config(
-                host=config.host,
-                token=config.token,
-                http_timeout_seconds=30,
-                retry_timeout_seconds=60,
-            )
-            _workspace_clients[resolved_name] = WorkspaceClient(config=sdk_config)
-        
-        return _workspace_clients[resolved_name]
+        existing = _workspace_clients.get(resolved_name)
+        if existing is not None:
+            return existing
+    
+    # Create client outside lock
+    config = _workspace_configs[resolved_name]
+    sdk_config = Config(
+        host=config.host,
+        token=config.token,
+        http_timeout_seconds=30,
+        retry_timeout_seconds=60,
+    )
+    new_client = WorkspaceClient(config=sdk_config)
+    
+    # Second check under lock to prevent duplicate clients
+    with _workspace_clients_lock:
+        existing = _workspace_clients.get(resolved_name)
+        if existing is not None:
+            return existing
+        _workspace_clients[resolved_name] = new_client
+        return new_client
 
 
 def get_sql_warehouse_id(workspace: Optional[str] = None) -> Optional[str]:
@@ -256,14 +268,16 @@ def _format_column_details_md(columns: List[ColumnInfo]) -> List[str]:
     return markdown_lines
 
 
-def _get_job_info_cached(job_id: str) -> Dict[str, Any]:
+def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
     """Get job information with caching to avoid redundant API calls"""
+    workspace_name = _resolve_workspace_name(workspace)
+    cache_key = (workspace_name, job_id)
     with _job_cache_lock:
-        if job_id in _job_cache:
-            return _job_cache[job_id]
+        if cache_key in _job_cache:
+            return _job_cache[cache_key]
     
     try:
-        client = get_sdk_client()
+        client = get_sdk_client(workspace_name)
         job_info = client.jobs.get(job_id=job_id)
         result = {
             "name": job_info.settings.name
@@ -286,18 +300,20 @@ def _get_job_info_cached(job_id: str) -> Dict[str, Any]:
         result = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
 
     with _job_cache_lock:
-        _job_cache[job_id] = result
+        _job_cache[cache_key] = result
     return result
 
 
-def _get_notebook_id_cached(notebook_path: str) -> Optional[str]:
+def _get_notebook_id_cached(notebook_path: str, workspace: Optional[str] = None) -> Optional[str]:
     """Get notebook ID with caching to avoid redundant API calls"""
+    workspace_name = _resolve_workspace_name(workspace)
+    cache_key = (workspace_name, notebook_path)
     with _notebook_cache_lock:
-        if notebook_path in _notebook_cache:
-            return _notebook_cache[notebook_path]
+        if cache_key in _notebook_cache:
+            return _notebook_cache[cache_key]
     
     try:
-        client = get_sdk_client()
+        client = get_sdk_client(workspace_name)
         notebook_details = client.workspace.get_status(notebook_path)
         result = str(notebook_details.object_id)
     except Exception as e:
@@ -305,11 +321,11 @@ def _get_notebook_id_cached(notebook_path: str) -> Optional[str]:
         result = None
 
     with _notebook_cache_lock:
-        _notebook_cache[notebook_path] = result
+        _notebook_cache[cache_key] = result
     return result
 
 
-def _resolve_notebook_info_optimized(notebook_id: str, job_id: str) -> Dict[str, Any]:
+def _resolve_notebook_info_optimized(notebook_id: str, job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
     """
     Optimized version that resolves notebook info using cached job data.
     Returns dict with notebook_path, notebook_name, job_name, and task_key.
@@ -324,13 +340,13 @@ def _resolve_notebook_info_optimized(notebook_id: str, job_id: str) -> Dict[str,
     }
 
     # Get cached job info
-    job_info = _get_job_info_cached(job_id)
+    job_info = _get_job_info_cached(job_id, workspace)
     result["job_name"] = job_info["name"]
 
     # Look for notebook in job tasks
     for task_info in job_info["tasks"]:
         notebook_path = task_info["notebook_path"]
-        cached_notebook_id = _get_notebook_id_cached(notebook_path)
+        cached_notebook_id = _get_notebook_id_cached(notebook_path, workspace)
 
         if cached_notebook_id == notebook_id:
             result["notebook_path"] = notebook_path
@@ -453,7 +469,7 @@ def _process_lineage_results(
     batch_start = time.time()
 
     for job_id in unique_job_ids:
-        _get_job_info_cached(job_id)  # This will cache the job info
+        _get_job_info_cached(job_id, workspace)  # This will cache the job info
 
     batch_time = time.time() - batch_start
     logger.info(f"Job batch loading took {batch_time:.2f} seconds")
@@ -462,7 +478,7 @@ def _process_lineage_results(
     logger.info(f"Processing {len(notebook_job_pairs)} notebook entries...")
     for pair in notebook_job_pairs:
         notebook_info = _resolve_notebook_info_optimized(
-            pair["notebook_id"], pair["job_id"]
+            pair["notebook_id"], pair["job_id"], workspace
         )
         formatted_info = _format_notebook_info_optimized(notebook_info)
 
