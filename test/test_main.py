@@ -919,3 +919,51 @@ class TestSetDatabricksActiveWorkspace:
 
             assert "`prod`" in result
             assert session_ctx.active_workspace == "prod"
+
+
+class TestDatabricksSessionContextIsolation:
+    """Test cases for per-session workspace state isolation."""
+
+    def test_session_context_isolation(self):
+        """Test that separate DatabricksSessionContext instances are isolated."""
+        session1 = DatabricksSessionContext()
+        session2 = DatabricksSessionContext()
+
+        session1.active_workspace = "dev"
+        session2.active_workspace = "prod"
+
+        assert session1.active_workspace == "dev"
+        assert session2.active_workspace == "prod"
+
+    def test_session_context_default_is_none(self):
+        """Test that new session context has no active workspace set."""
+        session = DatabricksSessionContext()
+        assert session.active_workspace is None
+
+    @pytest.mark.asyncio
+    async def test_set_workspace_only_affects_calling_session(self, setup_env_vars):
+        """Test that set_active_databricks_workspace only affects the calling session."""
+        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+
+        session1 = DatabricksSessionContext()
+        session2 = DatabricksSessionContext()
+
+        mock_ctx1 = type("MockContext", (), {})()
+        mock_ctx1.request_context = type("MockRequestContext", (), {})()
+        mock_ctx1.request_context.lifespan_context = session1
+
+        mock_ctx2 = type("MockContext", (), {})()
+        mock_ctx2.request_context = type("MockRequestContext", (), {})()
+        mock_ctx2.request_context.lifespan_context = session2
+
+        with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
+            mock_get.return_value = {
+                "dev": WorkspaceConfig(name="dev", host="https://dev.databricks.com", token="token"),
+                "prod": WorkspaceConfig(name="prod", host="https://prod.databricks.com", token="token"),
+            }
+
+            await set_databricks_active_workspace("dev", ctx=mock_ctx1)
+            await set_databricks_active_workspace("prod", ctx=mock_ctx2)
+
+            assert session1.active_workspace == "dev"
+            assert session2.active_workspace == "prod"
