@@ -177,11 +177,7 @@ def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
     )
 
 
-DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST")
-DATABRICKS_TOKEN = os.environ.get("DATABRICKS_TOKEN")
-DATABRICKS_SQL_WAREHOUSE_ID = os.environ.get("DATABRICKS_SQL_WAREHOUSE_ID")
-
-_sdk_client: Optional[WorkspaceClient] = None
+# Workspace client cache - per-workspace clients are lazily created
 _workspace_clients: Dict[str, WorkspaceClient] = {}
 _workspace_clients_lock = threading.Lock()
 

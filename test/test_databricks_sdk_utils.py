@@ -1000,3 +1000,60 @@ class TestGetTableHistory:
             result = get_table_history("catalog.schema.table")
 
             assert "| 1 | 2024-01-01T00:00:00 | WRITE | user@example.com | - | - | - |" in result
+
+
+class TestMultiWorkspaceConfig:
+    """Test cases for multi-workspace configuration."""
+
+    def test_get_workspace_client_per_workspace_caching(self, setup_two_workspaces):
+        """Test that workspace clients are cached per workspace."""
+        from databricks_mcp.databricks_sdk_utils import get_workspace_client
+
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.WorkspaceClient"
+        ) as mock_client:
+            mock_client.side_effect = lambda **kwargs: Mock(name=f"client-{kwargs.get('config').host}")
+
+            client_default = get_workspace_client("default")
+            client_dev = get_workspace_client("dev")
+            client_default2 = get_workspace_client("default")
+
+            assert mock_client.call_count == 2
+            assert client_default is client_default2
+            assert client_default is not client_dev
+
+    def test_get_sql_warehouse_id_per_workspace(self, setup_two_workspaces):
+        """Test that SQL warehouse IDs are retrieved per workspace."""
+        from databricks_mcp.databricks_sdk_utils import get_sql_warehouse_id
+
+        assert get_sql_warehouse_id("default") == "default_warehouse"
+        assert get_sql_warehouse_id("dev") == "dev_warehouse"
+
+    def test_workspace_configs_parsed_correctly(self, setup_two_workspaces):
+        """Test that workspace configs are parsed from environment variables."""
+        from databricks_mcp.databricks_sdk_utils import get_workspace_configs
+
+        configs = get_workspace_configs()
+        assert "default" in configs
+        assert "dev" in configs
+        assert configs["default"].host == "https://default.databricks.com"
+        assert configs["dev"].host == "https://dev.databricks.com"
+
+    def test_execute_sql_uses_workspace_warehouse(self, setup_two_workspaces):
+        """Test that execute_databricks_sql uses workspace-specific warehouse."""
+        with patch(
+            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_response = Mock()
+            mock_response.status.state = StatementState.SUCCEEDED
+            mock_response.result.data_array = []
+            mock_response.manifest.schema.columns = []
+            mock_client.statement_execution.execute_statement.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            execute_databricks_sql("SELECT 1", workspace="dev")
+
+            mock_get_client.assert_called_once_with("dev")
+            call_args = mock_client.statement_execution.execute_statement.call_args
+            assert call_args.kwargs["warehouse_id"] == "dev_warehouse"
