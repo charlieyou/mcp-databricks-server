@@ -133,7 +133,9 @@ async def execute_sql_query(
 
     Args:
         sql: The complete SQL query string to execute.
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     sdk_result = await asyncio.to_thread(
@@ -164,32 +166,15 @@ async def describe_uc_table(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Provides a detailed description of a specific Unity Catalog table.
+    Provides detailed metadata about a specific Unity Catalog table.
 
-    Use this tool to understand the structure (columns, data types, partitioning) of a single table.
-    This is essential before constructing SQL queries against the table.
+    Use this tool when you know the exact three-part table name and need comprehensive information
+    about its structure. The tool retrieves schema details (columns, types, nullability), table properties,
+    storage location, and table statistics.
 
-    Optionally, it can include comprehensive lineage information that goes beyond traditional
-    table-to-table dependencies:
-
-    **Table Lineage:**
-    - Upstream tables (tables this table reads from)
-    - Downstream tables (tables that read from this table)
-
-    **Notebook & Job Lineage:**
-    - Notebooks that read from this table, including:
-      * Notebook name and workspace path
-      * Associated Databricks job information (job name, ID, task details)
-    - Notebooks that write to this table with the same detailed context
-
-    **Use Cases:**
-    - Data impact analysis: understand what breaks if you modify this table
-    - Code discovery: find notebooks that process this data for further analysis
-    - Debugging: trace data flow issues by examining both table dependencies and processing code
-    - Documentation: understand the complete data ecosystem around a table
-
-    The lineage information allows LLMs and tools to subsequently fetch the actual notebook
-    code content for deeper analysis of data transformations and business logic.
+    Optionally, include lineage information to understand data dependencies—upstream and downstream tables,
+    as well as notebooks and jobs that read from or write to this table. Lineage is useful for impact
+    analysis and understanding how data flows through the data pipeline.
 
     The output is formatted in Markdown.
 
@@ -198,7 +183,9 @@ async def describe_uc_table(
         include_lineage: Set to True to fetch and include comprehensive lineage (tables, notebooks, jobs).
                          Defaults to False. May take longer to retrieve but provides rich context for
                          understanding data dependencies and enabling code exploration.
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     details_markdown = await asyncio.to_thread(
@@ -215,25 +202,25 @@ async def describe_uc_table(
 async def get_uc_table_history(
     full_table_name: str,
     limit: int = 10,
-    start_timestamp: str | None = None,
-    end_timestamp: str | None = None,
+    start_timestamp: Optional[str] = None,
+    end_timestamp: Optional[str] = None,
     workspace: Optional[str] = None,
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Retrieves the version history of a Delta table.
+    Retrieves version history for a Delta table in Unity Catalog.
 
-    Use this tool to understand recent changes to a table, including what operations
-    were performed, when, and by whom. Useful for auditing and debugging data issues.
-
-    The output is formatted in Markdown.
+    Use this tool to see the change history of a table, including when changes occurred,
+    who made them, and what operations were performed. Useful for auditing and debugging.
 
     Args:
         full_table_name: The fully qualified three-part name of the table (e.g., `catalog.schema.table`).
         limit: Maximum number of history records to return. Default is 10.
         start_timestamp: Optional. Filter to show only history after this timestamp (ISO format, e.g., '2024-01-01' or '2024-01-01T00:00:00').
         end_timestamp: Optional. Filter to show only history before this timestamp (ISO format).
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     history_markdown = await asyncio.to_thread(
@@ -255,7 +242,7 @@ async def describe_uc_catalog(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Provides a summary of a specific Unity Catalog, listing all its schemas with their names and descriptions.
+    Retrieves a summary of all schemas within a specific Unity Catalog.
 
     Use this tool when you know the catalog name and need to discover the schemas within it.
     This is often a precursor to describing a specific schema or table.
@@ -263,7 +250,9 @@ async def describe_uc_catalog(
 
     Args:
         catalog_name: The name of the Unity Catalog to describe (e.g., `prod`, `dev`, `system`).
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     summary_markdown = await asyncio.to_thread(
@@ -282,11 +271,10 @@ async def describe_uc_schema(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Provides detailed information about a specific schema within a Unity Catalog.
+    Retrieves detailed information about a specific schema within a Unity Catalog.
 
-    Use this tool to understand the contents of a schema, primarily its tables.
-    Optionally, it can list all tables within the schema and their column details.
-    Set `include_columns=True` to get column information, which is crucial for query construction but makes the output longer.
+    This includes listing all tables in the schema with their names, types, and descriptions.
+    If `include_columns=True`, column-level details are also provided for each table.
     If `include_columns=False`, only table names and descriptions are shown, useful for a quicker overview.
     The output is formatted in Markdown.
 
@@ -294,7 +282,9 @@ async def describe_uc_schema(
         catalog_name: The name of the catalog containing the schema.
         schema_name: The name of the schema to describe.
         include_columns: If True, lists tables with their columns. Defaults to False for a briefer summary.
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     details_markdown = await asyncio.to_thread(
@@ -321,7 +311,9 @@ async def list_uc_catalogs(
     The output is formatted in Markdown.
 
     Args:
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     summary_markdown = await asyncio.to_thread(
@@ -343,10 +335,10 @@ async def get_databricks_job(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Retrieves details for a specific Databricks job by its job ID.
+    Retrieves comprehensive details about a specific Databricks job by its ID.
 
-    Use this tool to get comprehensive information about a job including:
-    - Job name, description, and creator
+    This includes:
+    - Job name and creator
     - Schedule configuration (cron expression, timezone, pause status)
     - Task definitions (notebook, spark python, spark jar, SQL, dbt tasks)
     - Task dependencies and timeout settings
@@ -356,7 +348,9 @@ async def get_databricks_job(
 
     Args:
         job_id: The unique identifier of the job to retrieve.
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(get_job, job_id=job_id, workspace=resolved_workspace)
@@ -371,17 +365,17 @@ async def list_databricks_jobs(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Lists all Databricks jobs in the workspace with optional filtering.
+    Lists Databricks jobs, optionally filtered by name.
 
-    Use this tool to discover available jobs or search for specific jobs by name.
-    Results include job IDs, names, creators, and creation timestamps.
-
-    The output is formatted in Markdown.
+    Returns a summary of all matching jobs including job ID, name, and creator.
+    Use expand_tasks=True to see task details for each job.
 
     Args:
         name: Optional filter to find jobs whose names contain this string.
         expand_tasks: If True, includes task keys in the output (default: False).
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(
@@ -400,20 +394,21 @@ async def get_databricks_job_run(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Retrieves details for a specific job run by its run ID.
+    Retrieves details about a specific job run by its run ID.
 
-    Use this tool to get comprehensive information about a job run including:
-    - Run state (lifecycle state, result state, state message)
-    - Timing information (start time, end time, duration)
-    - Individual task run details with their states
-    - Cluster information
+    This includes:
+    - Run state and result
+    - Start and end times
+    - Task-level execution details
     - Link to the Databricks UI
 
     The output is formatted in Markdown.
 
     Args:
         run_id: The unique identifier of the run to retrieve.
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(get_job_run, run_id=run_id, workspace=resolved_workspace)
@@ -429,19 +424,16 @@ async def get_databricks_job_run_output(
     """
     Retrieves the output of a specific job run by its run ID.
 
-    Use this tool to get the results and logs from a completed job run including:
-    - Run metadata (job ID, status, timing)
-    - Notebook output (result value)
-    - SQL output (link to results)
-    - dbt output (artifacts link)
-    - Execution logs
-    - Error messages and stack traces (if the run failed)
+    This is useful for debugging failed runs or examining the results of completed runs.
+    The output includes notebook results, error messages, and any logged output.
 
     The output is formatted in Markdown.
 
     Args:
         run_id: The unique identifier of the run whose output to retrieve.
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(
@@ -463,26 +455,22 @@ async def list_databricks_job_runs(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Lists all job runs with optional filtering by job ID, status, and time range.
+    Lists job runs with optional filtering.
 
-    Use this tool to find job runs based on various criteria:
-    - Filter by specific job ID
-    - Filter by run status (active or completed)
-    - Filter by start time range (milliseconds since epoch)
-
-    Results include run IDs, states, timing, and links to the Databricks UI.
-
-    The output is formatted in Markdown.
+    Can filter by job ID, status (active/completed), and time range. Results are sorted
+    by start time (most recent first). Useful for monitoring and debugging job executions.
 
     Args:
-        job_id: Optional job ID to filter runs for a specific job.
+        job_id: Optional filter to list runs for a specific job only.
         active_only: If True, only returns currently running jobs (default: False).
         completed_only: If True, only returns completed jobs (default: False).
         expand_tasks: If True, includes task-level details in the output (default: False).
         start_time_from: Optional filter for runs started after this time (milliseconds since epoch).
         start_time_to: Optional filter for runs started before this time (milliseconds since epoch).
         limit: Maximum number of runs to return (default: 25). Auto-paginates if needed.
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(
@@ -507,16 +495,9 @@ async def export_databricks_task_run(
     ctx: Optional[Context] = None,
 ) -> str:
     """
-    Exports a task run as HTML, including notebook code and rendered outputs.
+    Exports the HTML output of a task run by its task run ID.
 
-    Use this tool to get the full notebook content (code cells and their outputs) from
-    a completed task run. This is useful for:
-    - Viewing the actual code that was executed
-    - Seeing the output/results of each cell
-    - Debugging failed notebook runs
-    - Auditing what a job actually did
-
-    **Important**: For multi-task jobs, use the individual task's run_id (found in
+    Use this to view rendered notebook output. Note: This requires the task run ID (found via
     get_databricks_job_run under "Task Runs"), not the parent job run ID.
 
     The output is formatted in Markdown containing the HTML export.
@@ -524,7 +505,9 @@ async def export_databricks_task_run(
     Args:
         run_id: The task run ID to export.
         include_dashboards: If True, also exports any dashboards (default: False).
-        workspace: Optional workspace name. Uses session's active workspace if not specified.
+        workspace: Target workspace name (e.g., 'prod', 'dev'). Required when working with multiple 
+                   workspaces. Use `list_databricks_workspaces` to see available options. Falls back 
+                   to the active workspace if not specified.
     """
     resolved_workspace = _get_session_workspace(workspace=workspace, ctx=ctx)
     return await asyncio.to_thread(
