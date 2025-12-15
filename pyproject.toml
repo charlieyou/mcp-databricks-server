@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.14.3",
-    "databricks-sdk==0.55.0",
+    "databricks-sdk~=0.74.0",
     "httpx>=0.28.1",
     "lxml>=6.0.2",
     "mcp[cli]>=1.2.0",

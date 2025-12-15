@@ -201,12 +201,16 @@ def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
         if existing is not None:
             return existing
     
-    config = _workspace_configs[resolved_name]
+    from databricks.sdk.config import Config as SdkConfig
+    
+    ws_config = _workspace_configs[resolved_name]
     
     new_client = WorkspaceClient(
-        profile=config.profile,
-        http_timeout_seconds=30,
-        retry_timeout_seconds=60,
+        config=SdkConfig(
+            profile=ws_config.profile,
+            http_timeout_seconds=30,
+            retry_timeout_seconds=60,
+        )
     )
     
     with _workspace_clients_lock:
