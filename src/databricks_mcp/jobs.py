@@ -534,6 +534,13 @@ def _format_notebook_as_markdown(notebook: Dict[str, Any]) -> str:
         if results and results.get("data"):
             output_lines = []
             for item in results["data"]:
+                # Handle both dict and string items in data array
+                if isinstance(item, str):
+                    if item.strip():
+                        output_lines.append(item.strip())
+                    continue
+                if not isinstance(item, dict):
+                    continue
                 item_type = item.get("type", "")
                 item_data = item.get("data", "")
 
