@@ -227,9 +227,7 @@ def reset_sdk_client():
     from databricks_mcp import databricks_sdk_utils
 
     databricks_sdk_utils._workspace_clients = {}
-    databricks_sdk_utils._job_cache = {}
-    databricks_sdk_utils._notebook_cache = {}
+    databricks_sdk_utils.clear_lineage_cache()
     yield
     databricks_sdk_utils._workspace_clients = {}
-    databricks_sdk_utils._job_cache = {}
-    databricks_sdk_utils._notebook_cache = {}
+    databricks_sdk_utils.clear_lineage_cache()
