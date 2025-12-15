@@ -191,6 +191,39 @@ class TestDescribeUcTable:
             assert "Unexpected error" in str(exc_info.value)
             assert "Table not found" in str(exc_info.value)
 
+    @pytest.mark.asyncio
+    async def test_describe_table_error_markdown_converted_to_toolerror(self, setup_env_vars):
+        """Test that '# Error:' Markdown responses are converted to ToolError."""
+        with patch("databricks_mcp.main.get_uc_table_details") as mock_get_details:
+            mock_get_details.return_value = """# Error: Could Not Retrieve Table Details
+**Table:** `catalog.schema.nonexistent`
+**Problem:** Failed to fetch the complete metadata for this table.
+**Details:**
+```
+Table not found
+```"""
+
+            with pytest.raises(ToolError) as exc_info:
+                await describe_uc_table("catalog.schema.nonexistent")
+
+            assert "describe_uc_table" in str(exc_info.value)
+            assert "Could Not Retrieve Table Details" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_describe_table_error_markdown_with_leading_whitespace(self, setup_env_vars):
+        """Test that '# Error:' detection handles leading whitespace."""
+        with patch("databricks_mcp.main.get_uc_table_details") as mock_get_details:
+            mock_get_details.return_value = """
+  
+# Error: Could Not Retrieve Table Details
+**Details:** Some error"""
+
+            with pytest.raises(ToolError) as exc_info:
+                await describe_uc_table("catalog.schema.table")
+
+            assert "describe_uc_table" in str(exc_info.value)
+            assert "Could Not Retrieve Table Details" in str(exc_info.value)
+
 
 class TestGetUcTableHistory:
     """Test cases for get_uc_table_history tool."""
@@ -487,6 +520,22 @@ class TestListDatabricksJobs:
             assert "Job1" in result
             assert "Job2" in result
             mock_list.assert_called_once_with(name=None, expand_tasks=False, workspace=None)
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_error_markdown_converted_to_toolerror(self, setup_env_vars):
+        """Test that '# Error:' Markdown from list_jobs is converted to ToolError."""
+        with patch("databricks_mcp.main.list_jobs") as mock_list:
+            mock_list.return_value = """# Error: Could Not List Jobs
+**Details:**
+```
+Authentication failed
+```"""
+
+            with pytest.raises(ToolError) as exc_info:
+                await list_databricks_jobs()
+
+            assert "list_databricks_jobs" in str(exc_info.value)
+            assert "Could Not List Jobs" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_list_jobs_with_filter(self, setup_env_vars):

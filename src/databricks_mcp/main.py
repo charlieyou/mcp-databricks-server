@@ -79,12 +79,38 @@ def format_exception_md(title: str, details: str) -> str:
 ```"""
 
 
+def _is_error_markdown(result: str) -> bool:
+    """Check if a result string is an error markdown response.
+    
+    Error markdown starts with '# Error:' (ignoring leading whitespace).
+    This convention allows SDK utilities to return structured error information
+    while the MCP layer converts them to proper ToolError exceptions.
+    """
+    first_line = result.lstrip().split("\n", 1)[0].strip()
+    return first_line.startswith("# Error:")
+
+
+def _extract_error_from_markdown(result: str) -> tuple[str, str]:
+    """Extract error title and details from error markdown."""
+    stripped = result.lstrip()
+    first_line, *rest = stripped.split("\n", 1)
+    error_title = first_line.replace("# Error:", "").strip()
+    error_details = rest[0].strip() if rest else ""
+    return error_title, error_details
+
+
 def handle_tool_errors(tool_name):
     def decorator(fn):
         @functools.wraps(fn)
         async def wrapper(*args, **kwargs):
             try:
-                return await fn(*args, **kwargs)
+                result = await fn(*args, **kwargs)
+                # Detect "# Error:" prefix in Markdown responses and convert to ToolError
+                # This ensures MCP clients can distinguish success vs failure
+                if isinstance(result, str) and _is_error_markdown(result):
+                    error_title, error_details = _extract_error_from_markdown(result)
+                    raise ToolError(f"{tool_name}: {error_title}\n{error_details}")
+                return result
             except ToolError:
                 raise
             except DatabricksConfigError as e:
