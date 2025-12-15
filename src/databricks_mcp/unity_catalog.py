@@ -59,6 +59,10 @@ def _validate_table_name(table_full_name: str) -> str:
     Validates and quotes a fully qualified table name to prevent SQL injection.
     Returns the quoted table name (e.g., `catalog`.`schema`.`table`).
     Raises ValueError if the table name is invalid.
+
+    Unity Catalog allows identifiers with letters, numbers, underscores, and hyphens.
+    When quoted with backticks, identifiers can also contain spaces and other characters,
+    but we restrict to the common safe set to prevent SQL injection via backtick escaping.
     """
     parts = table_full_name.split(".")
     if len(parts) != 3 or any(not p for p in parts):
@@ -68,10 +72,15 @@ def _validate_table_name(table_full_name: str) -> str:
 
     safe_parts = []
     for p in parts:
-        if not re.match(r"^[A-Za-z0-9_]+$", p):
+        if not re.match(r"^[A-Za-z0-9_-]+$", p):
             raise ValueError(
                 f"Invalid identifier '{p}' in '{table_full_name}'. "
-                "Only letters, numbers, and underscores are allowed."
+                "Only letters, numbers, underscores, and hyphens are allowed."
+            )
+        if "`" in p:
+            raise ValueError(
+                f"Invalid identifier '{p}' in '{table_full_name}'. "
+                "Backticks are not allowed in identifiers."
             )
         safe_parts.append(f"`{p}`")
 
