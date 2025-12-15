@@ -6,13 +6,12 @@ This repo uses a **bare repo setup** where `.bare/` contains the Git database an
 
 ```
 ~/code/databricks-mcp/
-├── .bare/                    # Git database (objects, refs, etc.)
-├── .git                      # File pointing to .bare (enables git commands from root)
-├── [main worktree files]     # Current directory IS the main worktree
-└── feature-branch/           # Additional worktrees created here as siblings
+├── .bare/                    # Git database (bare repo)
+├── main/                     # Worktree for main branch
+└── feature-branch/           # Additional worktrees as siblings
 ```
 
-**Git commands work from project root** thanks to the `.git` pointer file.
+**All worktrees are peers** — no branch is "special". Git commands run from within any worktree.
 
 ## Issue Tracking (beads)
 
