@@ -11,7 +11,6 @@ from databricks_mcp.main import (
     describe_uc_schema,
     get_uc_table_history,
     list_uc_catalogs,
-    format_exception_md,
     get_databricks_job,
     list_databricks_jobs,
     get_databricks_job_run,
@@ -23,28 +22,6 @@ from databricks_mcp.main import (
     DatabricksSessionContext,
 )
 from databricks_mcp.databricks_sdk_utils import DatabricksConfigError
-
-
-class TestFormatExceptionMd:
-    """Test cases for format_exception_md function."""
-
-    def test_format_exception(self):
-        """Test formatting exception into markdown."""
-        result = format_exception_md("Test Error", "This is a test error message")
-
-        assert "# Test Error" in result
-        assert "**Details:**" in result
-        assert "This is a test error message" in result
-
-    def test_format_exception_multiline(self):
-        """Test formatting exception with multiline details."""
-        details = "Line 1\nLine 2\nLine 3"
-        result = format_exception_md("Multiline Error", details)
-
-        assert "# Multiline Error" in result
-        assert "Line 1" in result
-        assert "Line 2" in result
-        assert "Line 3" in result
 
 
 class TestExecuteSqlQuery:

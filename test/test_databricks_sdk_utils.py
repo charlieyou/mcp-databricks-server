@@ -137,10 +137,15 @@ token = token
 
         assert _resolve_workspace_name(None) == "staging"
 
-    def test_resolve_workspace_name_whitespace_only_falls_through(self, setup_env_vars):
-        """Test that whitespace-only workspace is treated as unspecified."""
-        assert _resolve_workspace_name("   ") == "default"
-        assert _resolve_workspace_name("") == "default"
+    def test_resolve_workspace_name_whitespace_only_raises_error(self, setup_env_vars):
+        """Test that whitespace-only workspace raises error."""
+        with pytest.raises(DatabricksConfigError) as exc_info:
+            _resolve_workspace_name("   ")
+        assert "cannot be empty" in str(exc_info.value)
+
+        with pytest.raises(DatabricksConfigError) as exc_info:
+            _resolve_workspace_name("")
+        assert "cannot be empty" in str(exc_info.value)
 
     def test_resolve_workspace_name_ambiguous_multiple_workspaces(self, monkeypatch, tmp_path):
         """Test error when multiple workspaces and no default."""
