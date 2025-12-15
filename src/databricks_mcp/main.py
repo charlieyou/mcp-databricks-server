@@ -71,14 +71,6 @@ def _get_session_workspace(
     return None
 
 
-def format_exception_md(title: str, details: str) -> str:
-    return f"""# {title}
-**Details:**
-```
-{details}
-```"""
-
-
 def _is_error_markdown(result: str) -> bool:
     """Check if a result string is an error markdown response.
     

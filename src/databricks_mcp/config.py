@@ -140,13 +140,16 @@ def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
     
     if workspace is not None:
         normalized = workspace.strip().lower()
-        if normalized:
-            if normalized not in _workspace_configs:
-                available = ", ".join(sorted(_workspace_configs.keys()))
-                raise DatabricksConfigError(
-                    f"Workspace '{workspace}' not found. Available workspaces: {available}"
-                )
-            return normalized
+        if not normalized:
+            raise DatabricksConfigError(
+                "Workspace name cannot be empty. Provide a valid workspace name."
+            )
+        if normalized not in _workspace_configs:
+            available = ", ".join(sorted(_workspace_configs.keys()))
+            raise DatabricksConfigError(
+                f"Workspace '{workspace}' not found. Available workspaces: {available}"
+            )
+        return normalized
     
     if "default" in _workspace_configs:
         return "default"
@@ -185,8 +188,16 @@ def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
     
     ws_config = _workspace_configs[resolved_name]
     
-    # Explicitly pass host and token to override any env vars (DATABRICKS_HOST, DATABRICKS_TOKEN)
-    # that might be set in .env file - profile settings should take precedence
+    if not ws_config.sql_warehouse_id:
+        logger.warning(
+            f"Workspace '{resolved_name}' has no sql_warehouse_id configured. "
+            "SQL queries will fail. Add sql_warehouse_id to your .databrickscfg profile."
+        )
+    
+    logger.debug(
+        f"Creating WorkspaceClient for workspace '{resolved_name}' (host={ws_config.host})"
+    )
+    
     new_client = WorkspaceClient(
         config=SdkConfig(
             host=ws_config.host,
