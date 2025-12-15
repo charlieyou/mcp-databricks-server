@@ -1,5 +1,19 @@
 # Agent Instructions
 
+## Repository Structure (Bare Repo + Worktrees)
+
+This repo uses a **bare repo setup** where `.bare/` contains the Git database and all working directories are peer worktrees.
+
+```
+~/code/databricks-mcp/
+├── .bare/                    # Git database (objects, refs, etc.)
+├── .git                      # File pointing to .bare (enables git commands from root)
+├── [main worktree files]     # Current directory IS the main worktree
+└── feature-branch/           # Additional worktrees created here as siblings
+```
+
+**Git commands work from project root** thanks to the `.git` pointer file.
+
 ## Issue Tracking (beads)
 
 **IMPORTANT**: Use **bd** for ALL issue tracking. No markdown TODOs.
@@ -17,8 +31,12 @@ bd close <id> --reason "Done" --json
 
 1. `bd ready` → find work
 2. `bd update <id> --status in_progress` → claim
-3. Create worktree: `git worktree add ../databricks-mcp-wt/<branch-name> -b <branch-name> origin/main`
-4. Work in the worktree
+3. Create worktree from project root:
+   ```bash
+   cd ~/code/databricks-mcp
+   git worktree add ./<branch-name> -b <branch-name> origin/main
+   ```
+4. Work in the worktree: `cd <branch-name>`
 5. Use oracle to review your changes
 6. Push and create PR: `git push -u origin <branch-name> && gh pr create`
     a. Include Amp thread URL and beads ID in description
@@ -33,11 +51,13 @@ bd close <id> --reason "Done" --json
 
 #### Merging and Cleanup
 
-1. `gh pr merge [pr-number]
-2. Navigate out of the worktree: `cd ../../ucmt`
-3. Remove worktree: `git worktree remove [worktree-branch]
-4. Delete the branch: `git branch -d [worktree-branch]
-5. Prune remote branches: `git fetch --prune`
+```bash
+gh pr merge <pr-number> --squash
+cd ~/code/databricks-mcp
+git worktree remove ./<branch-name>
+git branch -d <branch-name>
+git fetch --prune
+```
 
 ## Project Overview & Tech Stack
 
