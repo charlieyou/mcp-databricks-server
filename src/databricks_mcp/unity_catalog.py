@@ -1,3 +1,9 @@
+"""
+Unity Catalog operations and formatting.
+
+NOTE: Do not import from databricks_sdk_utils here to avoid circular imports.
+Only import from config and lineage (lower layers).
+"""
 import logging
 import re
 from typing import List, Optional
@@ -517,12 +523,12 @@ def get_uc_catalog_details(catalog_name: str, workspace: Optional[str] = None) -
 
     except Exception as e:
         error_message = (
-            f"Failed to retrieve schemas for catalog '{catalog_name}': {str(e)}"
+            f"Failed to retrieve details for catalog '{catalog_name}': {str(e)}"
         )
-        logger.error(f"Error in get_catalog_summary: {error_message}")
-        return f"""# Error: Could Not Retrieve Catalog Summary
+        logger.error(f"Error in get_uc_catalog_details: {error_message}")
+        return f"""# Error: Could Not Retrieve Catalog Details
 **Catalog:** `{catalog_name}`
-**Problem:** An error occurred while attempting to fetch schema information.
+**Problem:** An error occurred while attempting to fetch catalog information.
 **Details:**
 ```
 {error_message}

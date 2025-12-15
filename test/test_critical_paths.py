@@ -34,14 +34,14 @@ class TestGetUcTableDetailsWithLineageE2E:
         mock_table.columns = []
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.unity_catalog.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.return_value = mock_table
             mock_get_client.return_value = mock_client
 
             with patch(
-                "databricks_mcp.databricks_sdk_utils.execute_databricks_sql"
+                "databricks_mcp.lineage.execute_databricks_sql"
             ) as mock_sql:
                 mock_sql.return_value = {
                     "status": "success",
@@ -70,7 +70,7 @@ class TestGetUcTableDetailsWithLineageE2E:
                 }
 
                 with patch(
-                    "databricks_mcp.databricks_sdk_utils._get_job_info_cached"
+                    "databricks_mcp.lineage._get_job_info_cached"
                 ) as mock_job:
                     mock_job.return_value = {"name": "ETL Pipeline", "tasks": []}
 
@@ -94,14 +94,14 @@ class TestGetUcTableDetailsWithLineageE2E:
         mock_table.columns = []
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.unity_catalog.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.return_value = mock_table
             mock_get_client.return_value = mock_client
 
             with patch(
-                "databricks_mcp.databricks_sdk_utils.execute_databricks_sql"
+                "databricks_mcp.lineage.execute_databricks_sql"
             ) as mock_sql:
                 mock_sql.return_value = {
                     "status": "success",
@@ -130,7 +130,7 @@ class TestGetUcTableDetailsWithLineageE2E:
                 }
 
                 with patch(
-                    "databricks_mcp.databricks_sdk_utils._get_job_info_cached"
+                    "databricks_mcp.lineage._get_job_info_cached"
                 ) as mock_job:
                     mock_job.return_value = {"name": "Notebook Job", "tasks": []}
 
@@ -150,14 +150,14 @@ class TestGetUcTableDetailsWithLineageE2E:
         mock_table.columns = []
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.unity_catalog.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.return_value = mock_table
             mock_get_client.return_value = mock_client
 
             with patch(
-                "databricks_mcp.databricks_sdk_utils.execute_databricks_sql"
+                "databricks_mcp.lineage.execute_databricks_sql"
             ) as mock_sql:
                 mock_sql.return_value = {
                     "status": "error",
@@ -181,14 +181,14 @@ class TestGetUcTableDetailsWithLineageE2E:
         mock_table.columns = None
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.unity_catalog.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.return_value = mock_table
             mock_get_client.return_value = mock_client
 
             with patch(
-                "databricks_mcp.databricks_sdk_utils.execute_databricks_sql"
+                "databricks_mcp.lineage.execute_databricks_sql"
             ) as mock_sql:
                 mock_sql.return_value = {"status": "success", "data": []}
 
@@ -223,7 +223,7 @@ token = test_token
     def test_get_table_lineage_success(self, setup_env_vars):
         """Test _get_table_lineage with successful SQL execution."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.execute_databricks_sql"
+            "databricks_mcp.lineage.execute_databricks_sql"
         ) as mock_sql:
             mock_sql.return_value = {
                 "status": "success",
@@ -242,7 +242,7 @@ token = test_token
             }
 
             with patch(
-                "databricks_mcp.databricks_sdk_utils._get_job_info_cached"
+                "databricks_mcp.lineage._get_job_info_cached"
             ) as mock_job:
                 mock_job.return_value = None
 
@@ -271,7 +271,7 @@ token = test_token
         }
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils._get_job_info_cached"
+            "databricks_mcp.lineage._get_job_info_cached"
         ) as mock_job:
             mock_job.return_value = {
                 "name": "ETL Job",
@@ -312,7 +312,7 @@ token = test_token
         }
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils._get_job_info_cached"
+            "databricks_mcp.lineage._get_job_info_cached"
         ) as mock_job:
             mock_job.return_value = None
 
@@ -356,7 +356,7 @@ token = test_token
         mock_table.columns = []
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.unity_catalog.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_client.tables.get.return_value = mock_table
@@ -376,7 +376,7 @@ class TestSqlTimeoutAndFailureStates:
     def test_sql_timeout_pending_state(self, setup_env_vars):
         """Test SQL query that times out in PENDING state."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.config.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
@@ -396,7 +396,7 @@ class TestSqlTimeoutAndFailureStates:
     def test_sql_timeout_running_state(self, setup_env_vars):
         """Test SQL query that times out in RUNNING state."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.config.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
@@ -415,7 +415,7 @@ class TestSqlTimeoutAndFailureStates:
     def test_sql_failed_state_with_error_details(self, setup_env_vars):
         """Test SQL query that fails with error details."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.config.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
@@ -437,7 +437,7 @@ class TestSqlTimeoutAndFailureStates:
     def test_sql_failed_state_without_error_details(self, setup_env_vars):
         """Test SQL query that fails without specific error details."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.config.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
@@ -456,7 +456,7 @@ class TestSqlTimeoutAndFailureStates:
     def test_sql_canceled_state(self, setup_env_vars):
         """Test SQL query that is canceled."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.config.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
@@ -477,7 +477,7 @@ class TestSqlTimeoutAndFailureStates:
     def test_sql_closed_state(self, setup_env_vars):
         """Test SQL query in CLOSED state."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.config.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
@@ -496,7 +496,7 @@ class TestSqlTimeoutAndFailureStates:
     def test_sql_no_status(self, setup_env_vars):
         """Test SQL query with no status returned."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.config.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_response = Mock()
@@ -706,7 +706,7 @@ class TestExportTaskRun:
         html_content = f"= '{encoded}'"
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.jobs.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_view = Mock()
@@ -725,7 +725,7 @@ class TestExportTaskRun:
     def test_export_task_run_no_views(self, setup_env_vars):
         """Test export when no views are available."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.jobs.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_export = Mock()
@@ -740,7 +740,7 @@ class TestExportTaskRun:
     def test_export_task_run_empty_views(self, setup_env_vars):
         """Test export when views list is empty."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.jobs.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_export = Mock()
@@ -755,7 +755,7 @@ class TestExportTaskRun:
     def test_export_task_run_unparseable_content(self, setup_env_vars):
         """Test export when notebook content can't be parsed."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.jobs.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_view = Mock()
@@ -774,7 +774,7 @@ class TestExportTaskRun:
     def test_export_task_run_no_content_in_view(self, setup_env_vars):
         """Test export when view has no content."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.jobs.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_view = Mock()
@@ -791,7 +791,7 @@ class TestExportTaskRun:
     def test_export_task_run_error(self, setup_env_vars):
         """Test export when API call fails."""
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.jobs.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_client.jobs.export_run.side_effect = Exception("Run not found")
@@ -813,7 +813,7 @@ class TestExportTaskRun:
         html_content = f"= '{encoded}'"
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils.get_workspace_client"
+            "databricks_mcp.jobs.get_workspace_client"
         ) as mock_get_client:
             mock_client = Mock()
             mock_view = Mock()
@@ -878,7 +878,7 @@ class TestLineageEdgeCases:
         }
 
         with patch(
-            "databricks_mcp.databricks_sdk_utils._get_job_info_cached"
+            "databricks_mcp.lineage._get_job_info_cached"
         ) as mock_job:
             mock_job.return_value = None
 

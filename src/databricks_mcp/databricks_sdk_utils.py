@@ -20,8 +20,10 @@ from .config import (
     reload_workspace_configs,
 )
 from .jobs import (
+    _format_notebook_as_markdown,
     _format_run_state_md,
     _format_timestamp,
+    _parse_notebook_html,
     export_task_run,
     get_job,
     get_job_run,
@@ -30,6 +32,7 @@ from .jobs import (
     list_jobs,
 )
 from .lineage import (
+    _get_table_lineage,
     _process_lineage_results,
     clear_lineage_cache,
 )
@@ -61,8 +64,10 @@ __all__ = [
     "get_uc_schema_details",
     "get_uc_table_details",
     # jobs
+    "_format_notebook_as_markdown",
     "_format_run_state_md",
     "_format_timestamp",
+    "_parse_notebook_html",
     "export_task_run",
     "get_job",
     "get_job_run",
@@ -70,6 +75,7 @@ __all__ = [
     "list_job_runs",
     "list_jobs",
     # lineage
+    "_get_table_lineage",
     "_process_lineage_results",
     "clear_lineage_cache",
 ]

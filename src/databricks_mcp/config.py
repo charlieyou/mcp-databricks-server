@@ -1,3 +1,9 @@
+"""
+Workspace configuration, client caching, and SQL execution.
+
+NOTE: This is a base module. Do not import from databricks_sdk_utils here
+to avoid circular imports. Other modules may import from this module.
+"""
 import configparser
 import logging
 import os
