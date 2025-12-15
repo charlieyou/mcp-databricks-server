@@ -9,7 +9,7 @@ import itertools
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import unquote
 
@@ -44,10 +44,10 @@ def _format_run_state_md(state: Optional[RunState], max_message_len: int = 200) 
 
 
 def _format_timestamp(ts_ms: Optional[int]) -> str:
-    """Format a millisecond timestamp into a readable date string."""
-    if not ts_ms:
+    """Format a millisecond timestamp into a readable UTC date string."""
+    if ts_ms is None:
         return "N/A"
-    return datetime.fromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def get_job(job_id: int, workspace: Optional[str] = None) -> str:
