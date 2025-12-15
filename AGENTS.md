@@ -7,11 +7,13 @@ This repo uses a **bare repo setup** where `.bare/` contains the Git database an
 ```
 ~/code/databricks-mcp/
 ├── .bare/                    # Git database (bare repo)
-├── main/                     # Worktree for main branch
+├── main/                     # Worktree for main branch (has .beads/)
 └── feature-branch/           # Additional worktrees as siblings
 ```
 
-**All worktrees are peers** — no branch is "special". Git commands run from within any worktree.
+**All worktrees are peers** — no branch is "special". Git commands run from within any worktree (e.g., `main/`).
+
+**Beads**: All worktrees share the `.beads/` directory in `main/`. Requires `BEADS_NO_DAEMON=1` in shell profile.
 
 ## Issue Tracking (beads)
 
@@ -30,16 +32,16 @@ bd close <id> --reason "Done" --json
 
 1. `bd ready` → find work
 2. `bd update <id> --status in_progress` → claim
-3. Create worktree from project root:
+3. Create worktree (from within an existing worktree like `main/`):
    ```bash
-   cd ~/code/databricks-mcp
-   git worktree add ./<branch-name> -b <branch-name> origin/main
+   cd ~/code/databricks-mcp/main
+   git worktree add ../<branch-name> -b <branch-name> origin/main
    ```
-4. Work in the worktree: `cd <branch-name>`
+4. Work in the worktree: `cd ../<branch-name>`
 5. Use oracle to review your changes
 6. Push and create PR: `git push -u origin <branch-name> && gh pr create`
-    a. Include Amp thread URL and beads ID in description
-    b. Include how I can verify that the work is completed, a command to run to test new functionality
+    1. Include Amp thread URL and beads ID in description
+    2. Include how I can verify that the work is completed, a command to run to test new functionality
 7. `bd close <id>` → complete
 
 **Reference:**
@@ -52,8 +54,8 @@ bd close <id> --reason "Done" --json
 
 ```bash
 gh pr merge <pr-number> --squash
-cd ~/code/databricks-mcp
-git worktree remove ./<branch-name>
+cd ~/code/databricks-mcp/main
+git worktree remove ../<branch-name>
 git branch -d <branch-name>
 git fetch --prune
 ```
