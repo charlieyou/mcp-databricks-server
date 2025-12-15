@@ -6,8 +6,8 @@ Only import from config (lower layer).
 """
 import json
 import logging
-import threading
 import time
+from functools import lru_cache
 from typing import Any, Dict, Optional
 
 from databricks.sdk.service.sql import StatementParameterListItem
@@ -21,25 +21,12 @@ from .config import (
 
 logger = logging.getLogger(__name__)
 
-_job_cache: Dict[tuple[str, str], Dict[str, Any]] = {}
-_job_cache_lock = threading.Lock()
-_notebook_cache: Dict[tuple[str, str], Optional[str]] = {}
-_notebook_cache_lock = threading.Lock()
+LINEAGE_CACHE_MAX_SIZE = 1000
 
 
-def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
-    """Get job information with caching to avoid redundant API calls.
-    
-    Uses double-checked locking to prevent overwriting existing cache entries.
-    """
-    workspace_name = _resolve_workspace_name(workspace)
-    cache_key = (workspace_name, job_id)
-    
-    with _job_cache_lock:
-        existing = _job_cache.get(cache_key)
-        if existing is not None:
-            return existing
-    
+@lru_cache(maxsize=LINEAGE_CACHE_MAX_SIZE)
+def _get_job_info_cached_impl(workspace_name: str, job_id: str) -> Dict[str, Any]:
+    """Get job information with LRU caching. Thread-safe via lru_cache."""
     try:
         client = get_sdk_client(workspace_name)
         job_info = client.jobs.get(job_id=job_id)
@@ -63,41 +50,31 @@ def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[s
         logger.error(f"Error fetching job {job_id}: {e}")
         result = {"name": f"Job {job_id}", "tasks": [], "error": str(e)}
 
-    with _job_cache_lock:
-        existing = _job_cache.get(cache_key)
-        if existing is not None:
-            return existing
-        _job_cache[cache_key] = result
-        return result
+    return result
 
 
-def _get_notebook_id_cached(notebook_path: str, workspace: Optional[str] = None) -> Optional[str]:
-    """Get notebook ID with caching to avoid redundant API calls.
-    
-    Uses double-checked locking to prevent overwriting existing cache entries.
-    """
+def _get_job_info_cached(job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
+    """Get job information with LRU caching to avoid redundant API calls."""
     workspace_name = _resolve_workspace_name(workspace)
-    cache_key = (workspace_name, notebook_path)
-    
-    with _notebook_cache_lock:
-        existing = _notebook_cache.get(cache_key)
-        if existing is not None:
-            return existing
-    
+    return _get_job_info_cached_impl(workspace_name, job_id)
+
+
+@lru_cache(maxsize=LINEAGE_CACHE_MAX_SIZE)
+def _get_notebook_id_cached_impl(workspace_name: str, notebook_path: str) -> Optional[str]:
+    """Get notebook ID with LRU caching. Thread-safe via lru_cache."""
     try:
         client = get_sdk_client(workspace_name)
         notebook_details = client.workspace.get_status(notebook_path)
-        result: Optional[str] = str(notebook_details.object_id)
+        return str(notebook_details.object_id)
     except Exception as e:
         logger.error(f"Error fetching notebook {notebook_path}: {e}")
-        result = None
+        return None
 
-    with _notebook_cache_lock:
-        existing = _notebook_cache.get(cache_key)
-        if existing is not None:
-            return existing
-        _notebook_cache[cache_key] = result
-        return result
+
+def _get_notebook_id_cached(notebook_path: str, workspace: Optional[str] = None) -> Optional[str]:
+    """Get notebook ID with LRU caching to avoid redundant API calls."""
+    workspace_name = _resolve_workspace_name(workspace)
+    return _get_notebook_id_cached_impl(workspace_name, notebook_path)
 
 
 def _resolve_notebook_info_optimized(notebook_id: str, job_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
@@ -266,12 +243,9 @@ def _process_lineage_results(
 
 
 def clear_lineage_cache() -> None:
-    """Clear the job and notebook caches to free memory"""
-    global _job_cache, _notebook_cache
-    with _job_cache_lock:
-        _job_cache = {}
-    with _notebook_cache_lock:
-        _notebook_cache = {}
+    """Clear the job and notebook LRU caches to free memory."""
+    _get_job_info_cached_impl.cache_clear()
+    _get_notebook_id_cached_impl.cache_clear()
     logger.info("Cleared lineage caches")
 
 

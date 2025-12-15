@@ -590,15 +590,20 @@ class TestLineageCache:
     """Test cases for lineage cache functionality."""
 
     def test_clear_lineage_cache(self):
-        """Test clearing lineage cache."""
-        # Add some data to cache using tuple keys (workspace_name, id)
-        lineage._job_cache[("default", "test")] = {"name": "Test"}
-        lineage._notebook_cache[("default", "test")] = "123"
+        """Test clearing lineage cache clears LRU caches."""
+        lineage._get_job_info_cached_impl("default", "job123")
+        lineage._get_notebook_id_cached_impl("default", "/path/notebook")
+        
+        job_info_before = lineage._get_job_info_cached_impl.cache_info()
+        notebook_info_before = lineage._get_notebook_id_cached_impl.cache_info()
+        assert job_info_before.currsize > 0 or notebook_info_before.currsize > 0
 
         clear_lineage_cache()
 
-        assert len(lineage._job_cache) == 0
-        assert len(lineage._notebook_cache) == 0
+        job_info_after = lineage._get_job_info_cached_impl.cache_info()
+        notebook_info_after = lineage._get_notebook_id_cached_impl.cache_info()
+        assert job_info_after.currsize == 0
+        assert notebook_info_after.currsize == 0
 
 
 # ============================================================================
