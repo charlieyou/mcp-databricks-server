@@ -175,6 +175,8 @@ def list_jobs(
             limit=min(max_results, 25),
         )
         jobs_list = list(itertools.islice(jobs_iterator, max_results))
+        # Sort by created_time descending (most recent first)
+        jobs_list.sort(key=lambda j: j.created_time or 0, reverse=True)
         has_more = len(jobs_list) >= max_results
 
         markdown_parts = ["# Jobs List", ""]

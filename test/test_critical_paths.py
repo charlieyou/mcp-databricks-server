@@ -212,7 +212,9 @@ class TestGetTableLineageIntegration:
 host = https://test.databricks.com
 token = test_token
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr(
+            "databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file
+        )
         databricks_sdk_utils.reload_workspace_configs()
 
         result = _get_table_lineage("cat.schema.table")
@@ -331,7 +333,7 @@ class TestMissingSqlWarehouse:
 host = https://test.databricks.com
 token = test_token
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         result = execute_databricks_sql("SELECT 1")
@@ -346,7 +348,7 @@ token = test_token
 host = https://test.databricks.com
 token = test_token
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         mock_table = Mock()

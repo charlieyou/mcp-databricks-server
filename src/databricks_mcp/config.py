@@ -6,7 +6,6 @@ to avoid circular imports. Other modules may import from this module.
 """
 import configparser
 import logging
-import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,9 +17,6 @@ from databricks.sdk.service.sql import (
     StatementResponse,
     StatementState,
 )
-from dotenv import load_dotenv
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +38,7 @@ class WorkspaceConfig:
 
 
 def _get_databrickscfg_path() -> Path:
-    """Get the path to .databrickscfg file, respecting DATABRICKS_CONFIG_FILE."""
-    config_file = os.environ.get("DATABRICKS_CONFIG_FILE")
-    if config_file:
-        return Path(os.path.expanduser(config_file))
+    """Get the path to .databrickscfg file."""
     return Path.home() / ".databrickscfg"
 
 
@@ -133,18 +126,16 @@ def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
     """
     Resolve workspace name with priority:
     1. Explicit param if provided (case-insensitive, whitespace ignored)
-    2. DATABRICKS_CONFIG_PROFILE env var if set and matches a workspace
-    3. 'default' if exists
-    4. Single workspace if only one configured
-    5. Error if ambiguous or none configured
+    2. 'default' if exists
+    3. Single workspace if only one configured
+    4. Error if ambiguous or none configured
     
     Raises DatabricksConfigError on failure.
     """
     if not _workspace_configs:
         cfg_path = _get_databrickscfg_path()
         raise DatabricksConfigError(
-            f"No Databricks profiles configured. "
-            f"Create {cfg_path} or set DATABRICKS_CONFIG_FILE."
+            f"No Databricks profiles configured. Create {cfg_path}."
         )
     
     if workspace is not None:
@@ -156,17 +147,6 @@ def _resolve_workspace_name(workspace: Optional[str] = None) -> str:
                     f"Workspace '{workspace}' not found. Available workspaces: {available}"
                 )
             return normalized
-    
-    env_profile = os.environ.get("DATABRICKS_CONFIG_PROFILE")
-    if env_profile:
-        normalized_env = env_profile.strip().lower()
-        if normalized_env in _workspace_configs:
-            return normalized_env
-        else:
-            logger.warning(
-                f"DATABRICKS_CONFIG_PROFILE='{env_profile}' does not match any configured workspace. "
-                f"Available: {', '.join(sorted(_workspace_configs.keys()))}. Falling back to default resolution."
-            )
     
     if "default" in _workspace_configs:
         return "default"
@@ -205,8 +185,12 @@ def get_workspace_client(workspace: Optional[str] = None) -> WorkspaceClient:
     
     ws_config = _workspace_configs[resolved_name]
     
+    # Explicitly pass host and token to override any env vars (DATABRICKS_HOST, DATABRICKS_TOKEN)
+    # that might be set in .env file - profile settings should take precedence
     new_client = WorkspaceClient(
         config=SdkConfig(
+            host=ws_config.host,
+            token=ws_config.token,
             profile=ws_config.profile,
             http_timeout_seconds=30,
             retry_timeout_seconds=60,

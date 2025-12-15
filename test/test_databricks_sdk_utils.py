@@ -63,7 +63,7 @@ class TestGetSdkClient:
 
     def test_get_sdk_client_missing_config_file(self, monkeypatch, tmp_path):
         """Test that missing .databrickscfg raises error."""
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(tmp_path / "nonexistent"))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: tmp_path / "nonexistent")
         databricks_sdk_utils.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
@@ -75,7 +75,7 @@ class TestGetSdkClient:
         """Test that empty .databrickscfg raises error."""
         cfg_file = tmp_path / ".databrickscfg"
         cfg_file.write_text("")
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
@@ -94,7 +94,7 @@ class TestResolveWorkspaceName:
 host = https://prod.databricks.com
 token = token
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         assert _resolve_workspace_name("PROD") == "prod"
@@ -108,7 +108,7 @@ token = token
 host = https://dev.databricks.com
 token = token
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         assert _resolve_workspace_name("  dev  ") == "dev"
@@ -132,7 +132,7 @@ token = token
 host = https://staging.databricks.com
 token = token
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         assert _resolve_workspace_name(None) == "staging"
@@ -153,7 +153,7 @@ token = token_dev
 host = https://prod.databricks.com
 token = token_prod
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
@@ -167,23 +167,6 @@ token = token_prod
         """Test that 'default' workspace is matched case-insensitively."""
         assert _resolve_workspace_name("DEFAULT") == "default"
         assert _resolve_workspace_name("Default") == "default"
-    
-    def test_resolve_workspace_name_respects_config_profile_env(self, monkeypatch, tmp_path):
-        """Test that DATABRICKS_CONFIG_PROFILE is respected when no default."""
-        cfg_file = tmp_path / ".databrickscfg"
-        cfg_file.write_text("""[DEV]
-host = https://dev.databricks.com
-token = token_dev
-
-[PROD]
-host = https://prod.databricks.com
-token = token_prod
-""")
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
-        monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", "PROD")
-        databricks_sdk_utils.reload_workspace_configs()
-
-        assert _resolve_workspace_name(None) == "prod"
 
 
 class TestExecuteDatabricksSql:
@@ -214,7 +197,7 @@ class TestExecuteDatabricksSql:
 host = https://test.databricks.com
 token = test_token
 """)
-        monkeypatch.setenv("DATABRICKS_CONFIG_FILE", str(cfg_file))
+        monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
         databricks_sdk_utils.reload_workspace_configs()
 
         result = databricks_sdk_utils.execute_databricks_sql("SELECT 1")
