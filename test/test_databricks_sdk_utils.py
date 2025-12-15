@@ -622,14 +622,12 @@ class TestFormatHelpers:
         assert result == "Unknown"
 
     def test_format_timestamp_valid(self):
-        """Test formatting a valid timestamp."""
-        # Jan 1, 2024 00:00:00 UTC - test returns a valid datetime string
+        """Test formatting a valid timestamp returns UTC."""
+        # Jan 1, 2024 00:00:00 UTC
         ts_ms = 1704067200000
         result = _format_timestamp(ts_ms)
-        # Should return a date string in YYYY-MM-DD HH:MM:SS format
-        assert len(result) == 19  # "YYYY-MM-DD HH:MM:SS"
-        assert "-" in result
-        assert ":" in result
+        # Should return exact UTC datetime string
+        assert result == "2024-01-01 00:00:00 UTC"
 
     def test_format_timestamp_none(self):
         """Test formatting None timestamp."""
