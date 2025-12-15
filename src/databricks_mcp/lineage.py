@@ -1,8 +1,5 @@
 """
 Table lineage processing and caching.
-
-NOTE: Do not import from databricks_sdk_utils here to avoid circular imports.
-Only import from config (lower layer).
 """
 import json
 import logging

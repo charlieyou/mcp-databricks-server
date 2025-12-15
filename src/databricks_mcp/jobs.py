@@ -1,8 +1,5 @@
 """
 Job and run operations and formatting.
-
-NOTE: Do not import from databricks_sdk_utils here to avoid circular imports.
-Only import from config (lower layer).
 """
 import base64
 import itertools

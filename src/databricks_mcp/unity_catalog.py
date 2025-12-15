@@ -1,8 +1,5 @@
 """
 Unity Catalog operations and formatting.
-
-NOTE: Do not import from databricks_sdk_utils here to avoid circular imports.
-Only import from config and lineage (lower layers).
 """
 import logging
 import re

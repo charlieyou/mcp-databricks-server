@@ -198,8 +198,8 @@ token = test_token
 sql_warehouse_id = test_warehouse_id
 """)
     monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-    from databricks_mcp import databricks_sdk_utils
-    databricks_sdk_utils.reload_workspace_configs()
+    from databricks_mcp import config
+    config.reload_workspace_configs()
 
 
 @pytest.fixture
@@ -217,15 +217,15 @@ token = dev_token
 sql_warehouse_id = dev_warehouse
 """)
     monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-    from databricks_mcp import databricks_sdk_utils
-    databricks_sdk_utils.reload_workspace_configs()
+    from databricks_mcp import config
+    config.reload_workspace_configs()
 
 
 @pytest.fixture(autouse=True)
 def reset_sdk_client(monkeypatch, tmp_path):
     """Reset workspace clients and force mock config for ALL tests to prevent real API calls."""
     from unittest.mock import Mock
-    from databricks_mcp import databricks_sdk_utils
+    from databricks_mcp import config, lineage
     
     # Create a default mock config file for all tests
     cfg_file = tmp_path / ".databrickscfg"
@@ -242,9 +242,9 @@ sql_warehouse_id = test_warehouse_id
     monkeypatch.setattr("databricks_mcp.config.WorkspaceClient", lambda **kwargs: mock_client)
     monkeypatch.setattr("databricks.sdk.config.Config", lambda **kwargs: mock_sdk_config)
 
-    databricks_sdk_utils._workspace_clients = {}
-    databricks_sdk_utils.clear_lineage_cache()
-    databricks_sdk_utils.reload_workspace_configs()
+    config._workspace_clients = {}
+    lineage.clear_lineage_cache()
+    config.reload_workspace_configs()
     yield
-    databricks_sdk_utils._workspace_clients = {}
-    databricks_sdk_utils.clear_lineage_cache()
+    config._workspace_clients = {}
+    lineage.clear_lineage_cache()
