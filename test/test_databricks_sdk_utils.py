@@ -859,6 +859,7 @@ class TestGetJobRunOutput:
             mock_metadata.state = None
             mock_metadata.start_time = 1704067200000
             mock_metadata.end_time = 1704070800000
+            mock_metadata.job_parameters = None
             mock_output.metadata = mock_metadata
 
             mock_notebook_output = Mock()

@@ -329,6 +329,13 @@ def get_job_run_output(run_id: int, workspace: Optional[str] = None) -> str:
             markdown_parts.append(f"- **Ended**: {_format_timestamp(meta.end_time)}")
             markdown_parts.append("")
 
+            if meta.job_parameters:
+                markdown_parts.append("## Job Parameters")
+                for param in meta.job_parameters:
+                    default_str = f" (default: `{param.default}`)" if param.default else ""
+                    markdown_parts.append(f"- **{param.name}**: `{param.value}`{default_str}")
+                markdown_parts.append("")
+
         if output.notebook_output:
             markdown_parts.extend(["## Notebook Output"])
             if output.notebook_output.result:
