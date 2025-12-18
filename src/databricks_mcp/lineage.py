@@ -1,7 +1,7 @@
 """
 Table lineage processing and caching.
 
-NOTE: Do not import from databricks_sdk_utils here to avoid circular imports.
+NOTE: This is a core module. Import from config, not the other way around.
 Only import from config (lower layer).
 """
 import json

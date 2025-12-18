@@ -21,7 +21,7 @@ from databricks_mcp.main import (
     set_databricks_active_workspace,
     DatabricksSessionContext,
 )
-from databricks_mcp.databricks_sdk_utils import DatabricksConfigError
+from databricks_mcp.config import DatabricksConfigError
 
 
 class TestExecuteSqlQuery:
@@ -778,7 +778,7 @@ class TestListDatabricksWorkspaces:
     @pytest.mark.asyncio
     async def test_list_workspaces_success(self, setup_env_vars):
         """Test listing workspaces with configured workspaces."""
-        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+        from databricks_mcp.config import WorkspaceConfig
 
         with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
             mock_get.return_value = {
@@ -857,7 +857,7 @@ class TestSetDatabricksActiveWorkspace:
     @pytest.mark.asyncio
     async def test_set_active_workspace_success(self, setup_env_vars):
         """Test setting active workspace successfully."""
-        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+        from databricks_mcp.config import WorkspaceConfig
 
         mock_ctx = type("MockContext", (), {})()
         mock_ctx.request_context = type("MockRequestContext", (), {})()
@@ -882,7 +882,7 @@ class TestSetDatabricksActiveWorkspace:
     @pytest.mark.asyncio
     async def test_set_active_workspace_not_found(self, setup_env_vars):
         """Test setting workspace that doesn't exist."""
-        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+        from databricks_mcp.config import WorkspaceConfig
 
         mock_ctx = type("MockContext", (), {})()
         mock_ctx.request_context = type("MockRequestContext", (), {})()
@@ -906,7 +906,7 @@ class TestSetDatabricksActiveWorkspace:
     @pytest.mark.asyncio
     async def test_set_active_workspace_no_context(self, setup_env_vars):
         """Test setting workspace with no context."""
-        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+        from databricks_mcp.config import WorkspaceConfig
 
         with patch("databricks_mcp.main.get_workspace_configs") as mock_get:
             mock_get.return_value = {
@@ -925,7 +925,7 @@ class TestSetDatabricksActiveWorkspace:
     @pytest.mark.asyncio
     async def test_set_active_workspace_case_insensitive(self, setup_env_vars):
         """Test setting workspace with different case."""
-        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+        from databricks_mcp.config import WorkspaceConfig
 
         mock_ctx = type("MockContext", (), {})()
         mock_ctx.request_context = type("MockRequestContext", (), {})()
@@ -1023,7 +1023,7 @@ class TestDatabricksSessionContextIsolation:
     @pytest.mark.asyncio
     async def test_set_workspace_only_affects_calling_session(self, setup_env_vars):
         """Test that set_active_databricks_workspace only affects the calling session."""
-        from databricks_mcp.databricks_sdk_utils import WorkspaceConfig
+        from databricks_mcp.config import WorkspaceConfig
 
         session1 = DatabricksSessionContext()
         session2 = DatabricksSessionContext()

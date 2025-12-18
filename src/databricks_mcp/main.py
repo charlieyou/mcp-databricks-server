@@ -9,22 +9,26 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.server import Context
 
-from .databricks_formatter import format_query_results
-from .databricks_sdk_utils import (
+from .config import (
     DatabricksConfigError,
     execute_databricks_sql,
+    get_workspace_configs,
+)
+from .databricks_formatter import format_query_results
+from .jobs import (
     export_task_run,
     get_job,
     get_job_run,
     get_job_run_output,
+    list_job_runs,
+    list_jobs,
+)
+from .unity_catalog import (
     get_table_history,
     get_uc_all_catalogs_summary,
     get_uc_catalog_details,
     get_uc_schema_details,
     get_uc_table_details,
-    get_workspace_configs,
-    list_job_runs,
-    list_jobs,
 )
 
 

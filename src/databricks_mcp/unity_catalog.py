@@ -1,7 +1,7 @@
 """
 Unity Catalog operations and formatting.
 
-NOTE: Do not import from databricks_sdk_utils here to avoid circular imports.
+NOTE: This is a core module. Import from config, not the other way around.
 Only import from config and lineage (lower layers).
 """
 import logging

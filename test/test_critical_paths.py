@@ -7,16 +7,15 @@ from unittest.mock import Mock, patch
 
 from databricks.sdk.service.sql import StatementState
 
-from databricks_mcp import databricks_sdk_utils
-from databricks_mcp.databricks_sdk_utils import (
+from databricks_mcp import config
+from databricks_mcp.config import execute_databricks_sql
+from databricks_mcp.jobs import (
     _format_notebook_as_markdown,
-    _get_table_lineage,
     _parse_notebook_html,
-    _process_lineage_results,
-    execute_databricks_sql,
     export_task_run,
-    get_uc_table_details,
 )
+from databricks_mcp.lineage import _get_table_lineage, _process_lineage_results
+from databricks_mcp.unity_catalog import get_uc_table_details
 
 
 class TestGetUcTableDetailsWithLineageE2E:
@@ -215,7 +214,7 @@ token = test_token
         monkeypatch.setattr(
             "databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file
         )
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         result = _get_table_lineage("cat.schema.table")
 
@@ -334,7 +333,7 @@ host = https://test.databricks.com
 token = test_token
 """)
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         result = execute_databricks_sql("SELECT 1")
 
@@ -349,7 +348,7 @@ host = https://test.databricks.com
 token = test_token
 """)
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         mock_table = Mock()
         mock_table.name = "test_table"

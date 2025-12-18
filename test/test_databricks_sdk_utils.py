@@ -1,4 +1,4 @@
-"""Tests for databricks_sdk_utils module."""
+"""Tests for core SDK utility modules (config, jobs, lineage, unity_catalog)."""
 
 from unittest.mock import Mock, patch
 
@@ -6,28 +6,34 @@ import pytest
 from databricks.sdk.service.catalog import ColumnInfo as CatalogColumnInfo
 from databricks.sdk.service.sql import StatementState
 
-from databricks_mcp import databricks_sdk_utils
+from databricks_mcp import config
 from databricks_mcp import lineage
-from databricks_mcp.databricks_sdk_utils import (
+from databricks_mcp.config import (
     DatabricksConfigError,
-    _format_column_details_md,
+    _resolve_workspace_name,
+    execute_databricks_sql,
+    get_sdk_client,
+)
+from databricks_mcp.jobs import (
     _format_run_state_md,
     _format_timestamp,
-    _process_lineage_results,
-    _resolve_workspace_name,
-    clear_lineage_cache,
-    execute_databricks_sql,
     get_job,
     get_job_run,
     get_job_run_output,
-    get_sdk_client,
+    list_job_runs,
+    list_jobs,
+)
+from databricks_mcp.lineage import (
+    _process_lineage_results,
+    clear_lineage_cache,
+)
+from databricks_mcp.unity_catalog import (
+    _format_column_details_md,
     get_table_history,
     get_uc_all_catalogs_summary,
     get_uc_catalog_details,
     get_uc_schema_details,
     get_uc_table_details,
-    list_job_runs,
-    list_jobs,
 )
 
 
@@ -64,7 +70,7 @@ class TestGetSdkClient:
     def test_get_sdk_client_missing_config_file(self, monkeypatch, tmp_path):
         """Test that missing .databrickscfg raises error."""
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: tmp_path / "nonexistent")
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
             get_sdk_client()
@@ -76,7 +82,7 @@ class TestGetSdkClient:
         cfg_file = tmp_path / ".databrickscfg"
         cfg_file.write_text("")
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
             get_sdk_client()
@@ -95,7 +101,7 @@ host = https://prod.databricks.com
 token = token
 """)
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         assert _resolve_workspace_name("PROD") == "prod"
         assert _resolve_workspace_name("Prod") == "prod"
@@ -109,7 +115,7 @@ host = https://dev.databricks.com
 token = token
 """)
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         assert _resolve_workspace_name("  dev  ") == "dev"
         assert _resolve_workspace_name("dev ") == "dev"
@@ -133,7 +139,7 @@ host = https://staging.databricks.com
 token = token
 """)
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         assert _resolve_workspace_name(None) == "staging"
 
@@ -159,7 +165,7 @@ host = https://prod.databricks.com
 token = token_prod
 """)
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
         with pytest.raises(DatabricksConfigError) as exc_info:
             _resolve_workspace_name(None)
@@ -203,9 +209,9 @@ host = https://test.databricks.com
 token = test_token
 """)
         monkeypatch.setattr("databricks_mcp.config._get_databrickscfg_path", lambda: cfg_file)
-        databricks_sdk_utils.reload_workspace_configs()
+        config.reload_workspace_configs()
 
-        result = databricks_sdk_utils.execute_databricks_sql("SELECT 1")
+        result = config.execute_databricks_sql("SELECT 1")
 
         assert result["status"] == "error"
         assert "SQL warehouse ID is not configured" in result["error"]
@@ -1025,7 +1031,7 @@ class TestMultiWorkspaceConfig:
 
     def test_get_workspace_client_per_workspace_caching(self, setup_two_workspaces):
         """Test that workspace clients are cached per workspace."""
-        from databricks_mcp.databricks_sdk_utils import get_workspace_client
+        from databricks_mcp.config import get_workspace_client
 
         with patch(
             "databricks_mcp.config.WorkspaceClient"
@@ -1042,14 +1048,14 @@ class TestMultiWorkspaceConfig:
 
     def test_get_sql_warehouse_id_per_workspace(self, setup_two_workspaces):
         """Test that SQL warehouse IDs are retrieved per workspace."""
-        from databricks_mcp.databricks_sdk_utils import get_sql_warehouse_id
+        from databricks_mcp.config import get_sql_warehouse_id
 
         assert get_sql_warehouse_id("default") == "default_warehouse"
         assert get_sql_warehouse_id("dev") == "dev_warehouse"
 
     def test_workspace_configs_parsed_correctly(self, setup_two_workspaces):
         """Test that workspace configs are parsed from .databrickscfg profiles."""
-        from databricks_mcp.databricks_sdk_utils import get_workspace_configs
+        from databricks_mcp.config import get_workspace_configs
 
         configs = get_workspace_configs()
         assert "default" in configs
